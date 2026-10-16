@@ -187,6 +187,7 @@ private fun RecordShelf(np: NowPlaying, queue: List<MediaRepository.QueueEntry>,
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val sleeve = minOf(maxHeight * 0.52f, maxWidth * 0.30f, 340.dp)
         val step = sleeve * 0.62f
+        val sidePad = (maxWidth - step) / 2
         val focused = items.getOrNull(pager.currentPage)
 
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -197,7 +198,7 @@ private fun RecordShelf(np: NowPlaying, queue: List<MediaRepository.QueueEntry>,
                 HorizontalPager(
                     state = pager,
                     pageSize = PageSize.Fixed(step),
-                    contentPadding = PaddingValues(horizontal = (maxWidth - step) / 2),
+                    contentPadding = PaddingValues(horizontal = sidePad),
                     beyondViewportPageCount = 3,
                     modifier = Modifier.fillMaxWidth().height(sleeve + 30.dp).align(Alignment.TopCenter),
                     verticalAlignment = Alignment.Bottom,
