@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -54,6 +55,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.vinyl.launcher.data.MAX_DOCK_APPS
 import com.vinyl.launcher.data.DockPosition
+import com.vinyl.launcher.data.NavOrder
+import com.vinyl.launcher.service.NavButtonsService
 import com.vinyl.launcher.ui.cover.CoverActivity
 import com.vinyl.launcher.media.MediaRepository
 import com.vinyl.launcher.service.TaskbarService
@@ -195,6 +198,48 @@ private fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
                 }
             }
 
+            // ---------- Tombol navigasi Vinyl ----------
+            Group("Tombol navigasi Vinyl") {
+                SwitchRow(
+                    "Aktifkan tombol navigasi", s.nav.enabled,
+                    { on ->
+                        if (on && !Settings.canDrawOverlays(context)) SystemActions.openOverlaySettings(context)
+                        if (on && !SystemActions.isAccessibilityEnabled()) SystemActions.openAccessibilitySettings(context)
+                        vm.update { it.copy(nav = it.nav.copy(enabled = on)) }
+                        if (on) NavButtonsService.start(context)
+                    },
+                    subtitle = "Tombol Kembali, Home & Terbaru yang bisa dipindah dan diatur jaraknya",
+                )
+                if (s.nav.enabled) {
+                    if (!SystemActions.isAccessibilityEnabled()) TextButton(onClick = { SystemActions.openAccessibilitySettings(context) }) {
+                        Text("Nyalakan layanan aksesibilitas Vinyl (agar Kembali & Terbaru berfungsi)")
+                    }
+                    Text(
+                        "Agar tombol bawaan sistem hilang: Pengaturan tablet → Tampilan → Bilah navigasi → Gestur geser.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 6.dp),
+                    )
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        listOf(
+                            "Kiri bawah" to (0f to 1f), "Tengah bawah" to (0.5f to 1f), "Kanan bawah" to (1f to 1f),
+                            "Kiri tengah" to (0f to 0.5f), "Kanan tengah" to (1f to 0.5f),
+                        ).forEach { (label, xy) ->
+                            TextButton(onClick = { vm.update { it.copy(nav = it.nav.copy(x = xy.first, y = xy.second, vertical = xy.second == 0.5f)) } }) { Text(label) }
+                        }
+                    }
+                    SliderRow("Posisi mendatar", s.nav.x, 0f..1f, { v -> vm.update { it.copy(nav = it.nav.copy(x = v)) } })
+                    SliderRow("Posisi tegak", s.nav.y, 0f..1f, { v -> vm.update { it.copy(nav = it.nav.copy(y = v)) } })
+                    SliderRow("Jarak antar tombol", s.nav.spacing.toFloat(), 0f..160f, { v -> vm.update { it.copy(nav = it.nav.copy(spacing = v.toInt())) } }, { "${it.toInt()} dp" })
+                    SliderRow("Ukuran tombol", s.nav.size.toFloat(), 36f..88f, { v -> vm.update { it.copy(nav = it.nav.copy(size = v.toInt())) } }, { "${it.toInt()} dp" })
+                    SliderRow("Transparansi", s.nav.opacity, 0.2f..1f, { v -> vm.update { it.copy(nav = it.nav.copy(opacity = v)) } })
+                    ChipRow("Urutan", NavOrder.entries, s.nav.order, {
+                        when (it) { NavOrder.BACK_HOME_RECENTS -> "◁  ○  □"; NavOrder.RECENTS_HOME_BACK -> "□  ○  ◁" }
+                    }) { o -> vm.update { st -> st.copy(nav = st.nav.copy(order = o)) } }
+                    SwitchRow("Susun ke bawah (vertikal)", s.nav.vertical, { on -> vm.update { it.copy(nav = it.nav.copy(vertical = on)) } })
+                }
+            }
+
             // ---------- Efek ----------
             Group("Suara & getar") {
                 SwitchRow("Suara jarum", s.effects.needleSound, { on -> vm.update { it.copy(effects = it.effects.copy(needleSound = on)) } },
@@ -212,6 +257,11 @@ private fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
             Group("Gestur home screen") {
                 GestureControls(s.gestures, apps) { g -> vm.update { it.copy(gestures = g) } }
             }
+
+            Group("Gestur buatan sendiri") {
+                CustomGesturesSection(s.customGestures, apps) { list -> vm.update { it.copy(customGestures = list) } }
+            }
+
 
             // ---------- Cuaca ----------
             Group("Cuaca") {

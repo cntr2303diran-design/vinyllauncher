@@ -6,6 +6,7 @@ import com.vinyl.launcher.data.HistoryRepository
 import com.vinyl.launcher.data.SettingsRepository
 import com.vinyl.launcher.media.MediaRepository
 import com.vinyl.launcher.service.CoverService
+import com.vinyl.launcher.service.NavButtonsService
 import com.vinyl.launcher.service.TaskbarService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,6 +36,12 @@ class VinylApp : Application() {
             // Nyalakan/matikan layanan layar kunci sesuai pengaturan
             SettingsRepository.get(this@VinylApp).flow.map { it.coverEnabled }.distinctUntilChanged().collect { enabled ->
                 if (enabled) CoverService.start(this@VinylApp) else CoverService.stop(this@VinylApp)
+            }
+        }
+        appScope.launch {
+            // Tombol navigasi Vinyl menyala/mati sesuai pengaturan
+            SettingsRepository.get(this@VinylApp).flow.map { it.nav.enabled }.distinctUntilChanged().collect { enabled ->
+                if (enabled) NavButtonsService.start(this@VinylApp) else NavButtonsService.stop(this@VinylApp)
             }
         }
         appScope.launch {

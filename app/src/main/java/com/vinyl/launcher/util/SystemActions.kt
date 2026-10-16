@@ -3,6 +3,13 @@ package com.vinyl.launcher.util
 import android.accessibilityservice.AccessibilityService
 import android.annotation.SuppressLint
 import android.content.Context
+import android.os.Build
+import com.vinyl.launcher.data.SettingsRepository
+import com.vinyl.launcher.media.MediaRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
@@ -20,7 +27,10 @@ object SystemActions {
      * Menjalankan gestur. [openDrawer] dipanggil untuk aksi APP_DRAWER
      * karena drawer adalah bagian UI home screen.
      */
-    fun perform(context: Context, binding: GestureBinding, openCrate: () -> Unit = {}, openDrawer: () -> Unit) {
+    fun perform(
+        context: Context, binding: GestureBinding,
+        openCrate: () -> Unit = {}, startEdit: () -> Unit = {}, openDrawer: () -> Unit,
+    ) {
         when (binding.action) {
             GestureAction.NONE -> Unit
             GestureAction.APP_DRAWER -> openDrawer()
@@ -28,18 +38,35 @@ object SystemActions {
             GestureAction.LOCK_SCREEN -> lockScreen(context)
             GestureAction.OPEN_APP -> binding.packageName?.let { AppsRepository.get(context).launchPackage(it) }
             GestureAction.CRATE -> openCrate()
+            GestureAction.PLAY_PAUSE -> MediaRepository.togglePlayPause("Gestur")
+            GestureAction.NEXT_TRACK -> MediaRepository.next()
+            GestureAction.PREV_TRACK -> MediaRepository.previous()
+            GestureAction.BACK -> global(context, AccessibilityService.GLOBAL_ACTION_BACK)
+            GestureAction.RECENTS -> global(context, AccessibilityService.GLOBAL_ACTION_RECENTS)
+            GestureAction.QUICK_SETTINGS -> global(context, AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS)
+            GestureAction.SCREENSHOT ->
+                if (Build.VERSION.SDK_INT >= 28) global(context, AccessibilityService.GLOBAL_ACTION_TAKE_SCREENSHOT)
+            GestureAction.EDIT_HOME -> startEdit()
+            GestureAction.TASKBAR_TOGGLE -> scope.launch {
+                SettingsRepository.get(context).update { it.copy(dock = it.dock.copy(enabled = !it.dock.enabled)) }
+            }
             GestureAction.SETTINGS -> context.startActivity(
                 Intent(context, SettingsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             )
         }
     }
 
-    fun lockScreen(context: Context) {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    fun lockScreen(context: Context) = global(context, AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
+
+    /** Aksi global sistem (Back, Recents, kunci layar…) lewat layanan aksesibilitas Vinyl. */
+    fun global(context: Context, action: Int) {
         val svc = VinylAccessibilityService.instance
         if (svc != null) {
-            svc.performGlobalAction(AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
+            svc.performGlobalAction(action)
         } else {
-            Toast.makeText(context, "Aktifkan layanan aksesibilitas Vinyl Launcher untuk mengunci layar", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "Aktifkan layanan aksesibilitas Vinyl Launcher dulu", Toast.LENGTH_LONG).show()
             openAccessibilitySettings(context)
         }
     }

@@ -33,7 +33,10 @@ enum class VinylStyle { CLASSIC, COLORED, TRANSPARENT, PICTURE_DISC }
 enum class TonearmStyle { SILVER, BLACK, GOLD }
 
 @Serializable
-enum class GestureAction { NONE, APP_DRAWER, NOTIFICATIONS, LOCK_SCREEN, OPEN_APP, SETTINGS, CRATE }
+enum class GestureAction {
+    NONE, APP_DRAWER, NOTIFICATIONS, LOCK_SCREEN, OPEN_APP, SETTINGS, CRATE,
+    PLAY_PAUSE, NEXT_TRACK, PREV_TRACK, BACK, RECENTS, QUICK_SETTINGS, SCREENSHOT, EDIT_HOME, TASKBAR_TOGGLE,
+}
 
 @Serializable
 enum class WidgetType { CALENDAR, WEATHER, BATTERY, PHOTO }
@@ -121,6 +124,34 @@ data class GestureSettings(
     val doubleTap: GestureBinding = GestureBinding(GestureAction.LOCK_SCREEN),
 )
 
+/** Gestur gambar buatan pengguna: satu goresan jari, disimpan sebagai titik ternormalisasi (x,y berurutan). */
+@Serializable
+data class CustomGesture(
+    val id: String,
+    val name: String,
+    val points: List<Float>,
+    val binding: GestureBinding = GestureBinding(GestureAction.NONE),
+)
+
+@Serializable
+enum class NavOrder { BACK_HOME_RECENTS, RECENTS_HOME_BACK }
+
+/** Tombol navigasi Vinyl: Back / Home / Recents melayang yang posisinya bebas diatur. */
+@Serializable
+data class NavSettings(
+    val enabled: Boolean = false,
+    /** Posisi 0..1 pada layar (0 = kiri/atas, 1 = kanan/bawah). */
+    val x: Float = 0.5f,
+    val y: Float = 1f,
+    /** Jarak antar tombol (dp). */
+    val spacing: Int = 28,
+    /** Ukuran tiap tombol (dp). */
+    val size: Int = 52,
+    val opacity: Float = 0.85f,
+    val order: NavOrder = NavOrder.BACK_HOME_RECENTS,
+    val vertical: Boolean = false,
+)
+
 /** Sisi layar tempat Taskbar Vinyl menempel. */
 @Serializable
 enum class DockPosition { BOTTOM, TOP, LEFT, RIGHT }
@@ -182,6 +213,8 @@ data class AppSettings(
     val cover: CoverSettings = CoverSettings(),
     val gestures: GestureSettings = GestureSettings(),
     val dock: DockSettings = DockSettings(),
+    val nav: NavSettings = NavSettings(),
+    val customGestures: List<CustomGesture> = emptyList(),
     val weather: WeatherSettings = WeatherSettings(),
     val effects: EffectSettings = EffectSettings(),
     /** Paket aplikasi musik default (null = pilih otomatis). */

@@ -317,7 +317,7 @@ object TaskbarState {
 }
 
 /** Pemilik lifecycle untuk ComposeView yang hidup di luar Activity (jendela overlay). */
-private class OverlayOwner : LifecycleOwner, SavedStateRegistryOwner, ViewModelStoreOwner {
+internal class OverlayOwner : LifecycleOwner, SavedStateRegistryOwner, ViewModelStoreOwner {
     private val registry = LifecycleRegistry(this)
     private val savedState = SavedStateRegistryController.create(this)
     override val lifecycle: Lifecycle get() = registry

@@ -102,6 +102,10 @@ import com.vinyl.launcher.util.SoundFx
 import com.vinyl.launcher.data.DockPosition
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import kotlin.math.roundToInt
+import kotlin.math.abs
+import com.vinyl.launcher.util.GestureRecognizer
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 
 /** Warna netral saat tidak ada musik. */
 private val NeutralBg = Color(0xFF1B1B1F)
@@ -148,6 +152,7 @@ fun HomeScreen(vm: HomeViewModel) {
     }
 
     val gestures by rememberUpdatedState(settings.gestures)
+    val customGestures by rememberUpdatedState(settings.customGestures)
 
     Box(Modifier.fillMaxSize()) {
         BackgroundLayer(home.background, bgColor, art = np.art.takeIf { np.hasTrack }, swatches = np.swatches, animate = np.isPlaying)
@@ -164,7 +169,7 @@ fun HomeScreen(vm: HomeViewModel) {
                 .pointerInput(editing) {
                     if (editing) return@pointerInput
                     detectTapGestures(
-                        onDoubleTap = { SystemActions.perform(context, gestures.doubleTap, vm::openCrate) { vm.openDrawer() } },
+                        onDoubleTap = { SystemActions.perform(context, gestures.doubleTap, vm::openCrate, vm::startEdit) { vm.openDrawer() } },
                         onLongPress = {
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                             vm.startEdit()
@@ -173,25 +178,40 @@ fun HomeScreen(vm: HomeViewModel) {
                 }
                 .pointerInput(editing) {
                     if (editing) return@pointerInput
-                    var total = 0f
-                    detectVerticalDragGestures(
-                        onDragStart = { total = 0f },
-                        onDragEnd = {
-                            when {
-                                total < -120f -> SystemActions.perform(context, gestures.swipeUp, vm::openCrate) { vm.openDrawer() }
-                                total > 120f -> SystemActions.perform(context, gestures.swipeDown, vm::openCrate) { vm.openDrawer() }
-                            }
-                        },
-                    ) { change, dy -> change.consume(); total += dy }
-                }
-                .pointerInput(editing) {
-                    if (editing) return@pointerInput
-                    // Geser ke kiri → buka rak piringan (antrean & koleksi)
-                    var total = 0f
-                    detectHorizontalDragGestures(
-                        onDragStart = { total = 0f },
-                        onDragEnd = { if (total < -160f) vm.openCrate() },
-                    ) { change, dx -> change.consume(); total += dx }
+                    // Satu detektor goresan untuk semua gestur: gestur gambar buatan sendiri diperiksa
+                    // lebih dulu; bila tidak ada yang cocok → swipe atas/bawah/kiri bawaan.
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        if (down.isConsumed) return@awaitEachGesture   // sudah dipakai elemen di atasnya (mis. turntable)
+                        val path = mutableListOf(down.position)
+                        var moved = false
+                        var takenByChild = false
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val ch = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (ch.isConsumed) { takenByChild = true; break }
+                            if (!ch.pressed) break
+                            path.add(ch.position)
+                            if (!moved && (ch.position - down.position).getDistance() > viewConfiguration.touchSlop) moved = true
+                            if (moved) ch.consume()   // batalkan ketuk-lama (mode edit) selama menggambar
+                        }
+                        if (takenByChild || !moved) return@awaitEachGesture
+                        val custom = GestureRecognizer.match(path, customGestures)
+                        if (custom != null) {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            SystemActions.perform(context, custom.binding, vm::openCrate, vm::startEdit) { vm.openDrawer() }
+                            return@awaitEachGesture
+                        }
+                        val dx = path.last().x - path.first().x
+                        val dy = path.last().y - path.first().y
+                        when {
+                            abs(dy) > abs(dx) && dy < -120f ->
+                                SystemActions.perform(context, gestures.swipeUp, vm::openCrate, vm::startEdit) { vm.openDrawer() }
+                            abs(dy) > abs(dx) && dy > 120f ->
+                                SystemActions.perform(context, gestures.swipeDown, vm::openCrate, vm::startEdit) { vm.openDrawer() }
+                            abs(dx) >= abs(dy) && dx < -160f -> vm.openCrate()
+                        }
+                    }
                 }
                 // Sisakan ruang untuk Taskbar Vinyl di sisi tempat ia menempel
                 .padding(

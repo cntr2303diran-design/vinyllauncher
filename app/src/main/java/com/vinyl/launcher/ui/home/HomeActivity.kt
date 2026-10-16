@@ -10,6 +10,7 @@ import androidx.activity.viewModels
 import androidx.lifecycle.lifecycleScope
 import com.vinyl.launcher.data.SettingsRepository
 import com.vinyl.launcher.media.MediaRepository
+import com.vinyl.launcher.service.NavButtonsService
 import com.vinyl.launcher.service.TaskbarService
 import com.vinyl.launcher.ui.onboarding.OnboardingActivity
 import com.vinyl.launcher.ui.theme.VinylTheme
@@ -46,6 +47,7 @@ class HomeActivity : ComponentActivity() {
         MediaRepository.connect()
         // Nyalakan ulang taskbar bila aktif (mis. setelah izin overlay baru diberikan)
         if (vm.settings.value.dock.enabled) TaskbarService.start(this)
+        if (vm.settings.value.nav.enabled) NavButtonsService.start(this)
     }
 
     /** Tombol Home ditekan saat launcher sudah tampil → tutup drawer/editor. */

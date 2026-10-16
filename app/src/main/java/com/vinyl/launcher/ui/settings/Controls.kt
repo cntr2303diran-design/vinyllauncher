@@ -513,6 +513,15 @@ fun GestureAction.label() = when (this) {
     GestureAction.OPEN_APP -> "Buka aplikasi"
     GestureAction.SETTINGS -> "Pengaturan"
     GestureAction.CRATE -> "Rak piringan"
+    GestureAction.PLAY_PAUSE -> "Putar/jeda"
+    GestureAction.NEXT_TRACK -> "Lagu berikutnya"
+    GestureAction.PREV_TRACK -> "Lagu sebelumnya"
+    GestureAction.BACK -> "Kembali"
+    GestureAction.RECENTS -> "Aplikasi terbaru"
+    GestureAction.QUICK_SETTINGS -> "Panel pengaturan cepat"
+    GestureAction.SCREENSHOT -> "Tangkapan layar"
+    GestureAction.EDIT_HOME -> "Edit layar utama"
+    GestureAction.TASKBAR_TOGGLE -> "Nyala/mati taskbar"
 }
 
 @Composable
@@ -523,7 +532,7 @@ fun GestureControls(gestures: GestureSettings, apps: List<AppInfo>, onChange: (G
 }
 
 @Composable
-private fun GestureRow(label: String, binding: GestureBinding, apps: List<AppInfo>, onChange: (GestureBinding) -> Unit) {
+fun GestureRow(label: String, binding: GestureBinding, apps: List<AppInfo>, onChange: (GestureBinding) -> Unit) {
     var picking by remember { mutableStateOf(false) }
     ChipRow(label, GestureAction.entries, binding.action, { a ->
         if (a == GestureAction.OPEN_APP && binding.action == a)

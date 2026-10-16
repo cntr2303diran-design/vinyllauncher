@@ -130,6 +130,15 @@
                 android:value="Menampilkan taskbar pengganti di atas aplikasi lain" />
         </service>
 
+        <service
+            android:name=".service.NavButtonsService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Menampilkan tombol navigasi Vinyl (Back, Home, Recents) di atas aplikasi lain" />
+        </service>
+
         <!-- Opsional: aksi gestur kunci layar & buka notifikasi -->
         <service
             android:name=".service.VinylAccessibilityService"
