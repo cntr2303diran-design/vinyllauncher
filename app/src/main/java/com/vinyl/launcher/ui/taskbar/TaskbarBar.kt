@@ -67,6 +67,7 @@ import com.vinyl.launcher.data.DockPosition
 import com.vinyl.launcher.data.SettingsRepository
 import com.vinyl.launcher.media.MediaRepository
 import com.vinyl.launcher.ui.home.HomeActivity
+import com.vinyl.launcher.service.TaskbarState
 import com.vinyl.launcher.ui.settings.SettingsActivity
 import kotlinx.coroutines.flow.StateFlow
 
@@ -115,8 +116,8 @@ fun TaskbarBar(recents: StateFlow<List<AppInfo>>) {
         }
     } else {
         val content: @Composable () -> Unit = {
-            BarIcon(Icons.Rounded.Home, "Layar utama") { goHome(context, openDrawer = false) }
-            BarIcon(Icons.Rounded.Apps, "Semua aplikasi") { goHome(context, openDrawer = true) }
+            BarIcon(Icons.Rounded.Home, "Layar utama") { TaskbarState.setAppPanel(false); goHome(context, openDrawer = false) }
+            BarIcon(Icons.Rounded.Apps, "Semua aplikasi") { TaskbarState.toggleAppPanel() }
 
             if (favorites.isNotEmpty()) {
                 Divider(vertical)
@@ -141,7 +142,7 @@ fun TaskbarBar(recents: StateFlow<List<AppInfo>>) {
                 NowPlayingChip(context, compact = vertical)
             }
             Divider(vertical)
-            BarIcon(Icons.Rounded.ExpandMore, "Ciutkan taskbar", size = 22) { collapsed = true }
+            BarIcon(Icons.Rounded.ExpandMore, "Ciutkan taskbar", size = 22) { TaskbarState.setAppPanel(false); collapsed = true }
         }
         val barModifier = Modifier
             .padding(4.dp)

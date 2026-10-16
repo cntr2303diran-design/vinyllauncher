@@ -46,6 +46,7 @@ import com.vinyl.launcher.data.DockPosition
 import com.vinyl.launcher.data.DockSettings
 import com.vinyl.launcher.data.SettingsRepository
 import com.vinyl.launcher.ui.settings.SettingsActivity
+import com.vinyl.launcher.ui.taskbar.AppPanel
 import com.vinyl.launcher.ui.taskbar.TaskbarBar
 import com.vinyl.launcher.ui.theme.VinylTheme
 import kotlinx.coroutines.CoroutineScope
@@ -135,11 +136,43 @@ class TaskbarService : Service() {
                 SettingsRepository.get(this@TaskbarService).settings,
             ) { unlocked, barsVisible, suppressed, s ->
                 unlocked && !suppressed && (barsVisible || !s.dock.hideInFullscreen)
-            }.collect { show -> view?.visibility = if (show) View.VISIBLE else View.GONE }
+            }.collect { show ->
+                view?.visibility = if (show) View.VISIBLE else View.GONE
+                if (!show) TaskbarState.setAppPanel(false)
+            }
+        }
+        // Panel semua aplikasi: jendela layar penuh transparan, ada hanya saat dibuka
+        scope.launch {
+            TaskbarState.appPanelOpen.collect { open -> if (open) showPanel() else hidePanel() }
         }
     }
 
     private var layoutParams: WindowManager.LayoutParams? = null
+    private var panel: ComposeView? = null
+
+    private fun showPanel() {
+        if (panel != null || !::wm.isInitialized) return
+        val v = ComposeView(this).apply {
+            setViewTreeLifecycleOwner(owner)
+            setViewTreeSavedStateRegistryOwner(owner)
+            setViewTreeViewModelStoreOwner(owner)
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
+            setContent { VinylTheme { AppPanel(onClose = { TaskbarState.setAppPanel(false) }) } }
+        }
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+            PixelFormat.TRANSLUCENT,
+        )
+        runCatching { wm.addView(v, params) }.onSuccess { panel = v }
+    }
+
+    private fun hidePanel() {
+        panel?.let { runCatching { wm.removeView(it) } }
+        panel = null
+    }
 
     /** Tempelkan jendela ke sisi pilihan pengguna (bawah/atas/kiri/kanan) + jarak dari tepi. */
     private fun applyPosition(p: WindowManager.LayoutParams, dock: DockSettings) {
@@ -239,6 +272,7 @@ class TaskbarService : Service() {
     override fun onDestroy() {
         scope.cancel()
         runCatching { unregisterReceiver(screenReceiver) }
+        hidePanel()
         view?.let { runCatching { wm.removeView(it) } }
         view = null
         owner.stop()
@@ -274,6 +308,12 @@ object TaskbarState {
     private val _suppressed = MutableStateFlow(false)
     val suppressed: StateFlow<Boolean> = _suppressed.asStateFlow()
     fun setSuppressed(value: Boolean) { _suppressed.value = value }
+
+    /** Panel daftar aplikasi (tombol 9 titik) sedang terbuka. */
+    private val _appPanel = MutableStateFlow(false)
+    val appPanelOpen: StateFlow<Boolean> = _appPanel.asStateFlow()
+    fun setAppPanel(open: Boolean) { _appPanel.value = open }
+    fun toggleAppPanel() { _appPanel.value = !_appPanel.value }
 }
 
 /** Pemilik lifecycle untuk ComposeView yang hidup di luar Activity (jendela overlay). */
