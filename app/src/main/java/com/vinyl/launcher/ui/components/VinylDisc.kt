@@ -117,7 +117,7 @@ fun VinylDisc(
         Box(
             Modifier.matchParentSize().drawWithCache {
                 val r = min(size.width, size.height) / 2f
-                val c = center
+                val c = Offset(size.width / 2f, size.height / 2f)
                 val grooves = ImageBitmap(size.width.roundToInt().coerceAtLeast(1), size.height.roundToInt().coerceAtLeast(1))
                 CanvasDrawScope().draw(localDensity, localLayoutDirection, androidx.compose.ui.graphics.Canvas(grooves), size) {
                     drawGrooves(c, r, style)
