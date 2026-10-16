@@ -211,7 +211,7 @@ private fun NowPlayingChip(context: Context) {
         }
         Spacer(Modifier.width(2.dp))
         Box(
-            Modifier.size(40.dp).clip(CircleShape).clickable { MediaRepository.togglePlayPause() },
+            Modifier.size(40.dp).clip(CircleShape).clickable { MediaRepository.togglePlayPause("Taskbar") },
             contentAlignment = Alignment.Center,
         ) {
             Icon(if (np.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "Putar/jeda", tint = Color.White, modifier = Modifier.size(24.dp))

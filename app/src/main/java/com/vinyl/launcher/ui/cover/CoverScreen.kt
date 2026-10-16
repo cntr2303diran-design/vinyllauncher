@@ -321,7 +321,7 @@ private fun InfoArea(cover: CoverSettings, np: NowPlaying, now: LocalDateTime, a
                         CoverItem.SONG -> Column(horizontalAlignment = anchor.horizontal()) {
                             NowPlayingCard(
                                 np = np,
-                                onTogglePlay = { MediaRepository.togglePlayPause() },
+                                onTogglePlay = { MediaRepository.togglePlayPause("Kartu layar kunci") },
                                 onNext = { MediaRepository.next() },
                                 onPrevious = { MediaRepository.previous() },
                                 onOpen = { MediaRepository.openMusicApp(context) },

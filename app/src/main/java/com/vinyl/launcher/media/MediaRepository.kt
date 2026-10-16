@@ -156,10 +156,16 @@ object MediaRepository {
         list.forEach { c ->
             if (callbacks.keys.none { it.sessionToken == c.sessionToken }) {
                 val cb = object : MediaController.Callback() {
-                    override fun onPlaybackStateChanged(state: PlaybackState?) = chooseActive()
+                    override fun onPlaybackStateChanged(state: PlaybackState?) {
+                        logState(c.packageName, state)
+                        chooseActive()
+                    }
                     override fun onMetadataChanged(metadata: MediaMetadata?) = chooseActive()
                     override fun onQueueChanged(queue: MutableList<MediaSession.QueueItem>?) = chooseActive()
-                    override fun onSessionDestroyed() = chooseActive()
+                    override fun onSessionDestroyed() {
+                        log("${appName(c.packageName)}: sesi ditutup aplikasi")
+                        chooseActive()
+                    }
                 }
                 c.registerCallback(cb, handler)
                 callbacks[c] = cb
@@ -345,10 +351,48 @@ object MediaRepository {
         return null
     }
 
+    // ===================== Diagnostik =====================
+    // Catatan kejadian pemutaran untuk melacak "musik berhenti sendiri":
+    // membedakan perintah yang dikirim Vinyl dengan perubahan dari aplikasi musik itu sendiri.
+
+    data class LogEntry(val time: Long, val text: String)
+
+    private val _log = MutableStateFlow<List<LogEntry>>(emptyList())
+    val log: StateFlow<List<LogEntry>> = _log.asStateFlow()
+    private val lastStates = mutableMapOf<String, Int>()
+
+    fun log(text: String) {
+        _log.update { (it + LogEntry(System.currentTimeMillis(), text)).takeLast(120) }
+    }
+
+    private fun logState(pkg: String, ps: PlaybackState?) {
+        val st = ps?.state ?: PlaybackState.STATE_NONE
+        if (lastStates[pkg] == st) return
+        lastStates[pkg] = st
+        val name = when (st) {
+            PlaybackState.STATE_PLAYING -> "memutar"
+            PlaybackState.STATE_PAUSED -> "dijeda"
+            PlaybackState.STATE_STOPPED -> "berhenti"
+            PlaybackState.STATE_BUFFERING -> "buffering"
+            PlaybackState.STATE_ERROR -> "ERROR"
+            PlaybackState.STATE_CONNECTING -> "menyambung"
+            PlaybackState.STATE_NONE -> "tidak aktif"
+            else -> "status $st"
+        }
+        val err = ps?.errorMessage?.takeIf { it.isNotBlank() }?.let { " — $it" } ?: ""
+        log("${appName(pkg)}: $name$err")
+    }
+
+    private fun appName(pkg: String): String = runCatching {
+        val pm = appContext.packageManager
+        pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
+    }.getOrDefault(pkg)
+
     // ===================== Kontrol =====================
 
-    fun togglePlayPause() {
+    fun togglePlayPause(source: String = "Vinyl") {
         val c = active ?: return
+        log("$source → ${if (c.playbackState?.state == PlaybackState.STATE_PLAYING) "JEDA" else "PUTAR"} dikirim ke ${appName(c.packageName)}")
         if (c.playbackState?.state == PlaybackState.STATE_PLAYING) c.transportControls.pause()
         else c.transportControls.play()
         // Respons instan di UI; status asli menyusul lewat callback
@@ -361,11 +405,12 @@ object MediaRepository {
         }
     }
 
-    fun next() { active?.transportControls?.skipToNext() }
-    fun previous() { active?.transportControls?.skipToPrevious() }
+    fun next() { log("Vinyl → lagu berikutnya"); active?.transportControls?.skipToNext() }
+    fun previous() { log("Vinyl → lagu sebelumnya"); active?.transportControls?.skipToPrevious() }
 
     fun seekTo(ms: Long) {
         val c = active ?: return
+        log("Vinyl → lompat ke ${ms / 1000} dtk")
         val target = if (_state.value.durationMs > 0) ms.coerceIn(0, _state.value.durationMs) else ms.coerceAtLeast(0)
         c.transportControls.seekTo(target)
         _state.update { it.copy(positionMs = target, positionUpdateTime = SystemClock.elapsedRealtime()) }

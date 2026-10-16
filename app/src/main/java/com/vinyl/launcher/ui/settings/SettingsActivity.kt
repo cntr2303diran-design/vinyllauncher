@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.vinyl.launcher.data.MAX_DOCK_APPS
 import com.vinyl.launcher.ui.cover.CoverActivity
+import com.vinyl.launcher.media.MediaRepository
 import com.vinyl.launcher.service.TaskbarService
 import com.vinyl.launcher.util.SystemActions
 import android.provider.Settings
@@ -238,6 +239,25 @@ private fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
                         Text(p.name, Modifier.weight(1f))
                         TextButton(onClick = { vm.update { it.copy(home = p.home, cover = p.cover) } }) { Text("Terapkan") }
                         TextButton(onClick = { vm.update { st -> st.copy(presets = st.presets.filterNot { it.id == p.id }) } }) { Text("Hapus") }
+                    }
+                }
+            }
+
+            // ---------- Diagnostik ----------
+            Group("Diagnostik pemutaran") {
+                val log by MediaRepository.log.collectAsStateWithLifecycle()
+                Text(
+                    "Catatan ini membantu melacak musik yang berhenti sendiri: baris \"Vinyl → …\" berarti perintah dari launcher, baris lain berasal dari aplikasi musik.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
+                val fmt = remember { java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()) }
+                if (log.isEmpty()) Text("Belum ada kejadian.", style = MaterialTheme.typography.bodyMedium)
+                log.takeLast(30).asReversed().forEach { e ->
+                    Row(Modifier.padding(vertical = 3.dp)) {
+                        Text(fmt.format(java.util.Date(e.time)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(72.dp))
+                        Text(e.text, style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }

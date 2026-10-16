@@ -140,7 +140,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ---------- Musik ----------
-    fun togglePlay() = MediaRepository.togglePlayPause()
+    fun togglePlay() = MediaRepository.togglePlayPause("Turntable")
     fun next() = MediaRepository.next()
     fun previous() = MediaRepository.previous()
     fun seek(ms: Long) = MediaRepository.seekTo(ms)
