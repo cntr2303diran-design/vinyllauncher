@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.vinyl.launcher.data.MAX_DOCK_APPS
+import com.vinyl.launcher.data.DockPosition
 import com.vinyl.launcher.ui.cover.CoverActivity
 import com.vinyl.launcher.media.MediaRepository
 import com.vinyl.launcher.service.TaskbarService
@@ -176,6 +177,10 @@ private fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
                         }
                     }
                     if (s.dock.apps.size < MAX_DOCK_APPS) TextButton(onClick = { pickDock = -1 }) { Text("+ Tambah favorit (${s.dock.apps.size}/$MAX_DOCK_APPS)") }
+                    ChipRow("Posisi taskbar", DockPosition.entries, s.dock.position, {
+                        when (it) { DockPosition.BOTTOM -> "Bawah"; DockPosition.TOP -> "Atas"; DockPosition.LEFT -> "Kiri"; DockPosition.RIGHT -> "Kanan" }
+                    }) { pos -> vm.update { st -> st.copy(dock = st.dock.copy(position = pos)) } }
+                    SliderRow("Jarak dari tepi layar", s.dock.margin.toFloat(), 0f..80f, { v -> vm.update { it.copy(dock = it.dock.copy(margin = v.toInt())) } }, { "${it.toInt()} dp" })
                     SwitchRow("Aplikasi terakhir dibuka", s.dock.showRecents, { on ->
                         if (on && !TaskbarService.hasUsageAccess(context)) SystemActions.openUsageAccessSettings(context)
                         vm.update { it.copy(dock = it.dock.copy(showRecents = on)) }
@@ -190,8 +195,13 @@ private fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
             Group("Suara & getar") {
                 SwitchRow("Suara jarum", s.effects.needleSound, { on -> vm.update { it.copy(effects = it.effects.copy(needleSound = on)) } },
                     subtitle = "Bunyi \"tuk\" dan desis vinyl saat lagu mulai")
-                SwitchRow("Getar halus", s.effects.haptics, { on -> vm.update { it.copy(effects = it.effects.copy(haptics = on)) } })
-                if (s.effects.needleSound) SliderRow("Volume efek", s.effects.volume, 0.05f..1f, { v -> vm.update { it.copy(effects = it.effects.copy(volume = v)) } })
+                SwitchRow("Getar", s.effects.haptics, { on -> vm.update { it.copy(effects = it.effects.copy(haptics = on)) } })
+                SwitchRow("Efek saat vinyl disentuh", s.effects.interactionFx, { on -> vm.update { it.copy(effects = it.effects.copy(interactionFx = on)) } },
+                    subtitle = "Klik & getar saat vinyl diputar dengan jari, tonearm digeser, dan ganti lagu")
+                SwitchRow("Kresek vinyl terus-menerus", s.effects.crackle, { on -> vm.update { it.copy(effects = it.effects.copy(crackle = on)) } },
+                    subtitle = "Desis & letupan pelan selama lagu diputar di layar utama")
+                if (s.effects.needleSound || s.effects.crackle) SliderRow("Volume efek", s.effects.volume, 0.05f..1f, { v -> vm.update { it.copy(effects = it.effects.copy(volume = v)) } })
+                if (s.effects.haptics) SliderRow("Kekuatan getar", s.effects.hapticStrength, 0.3f..1f, { v -> vm.update { it.copy(effects = it.effects.copy(hapticStrength = v)) } })
             }
 
             // ---------- Gestur ----------

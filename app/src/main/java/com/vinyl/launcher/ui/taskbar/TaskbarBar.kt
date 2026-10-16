@@ -17,6 +17,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
@@ -32,6 +33,7 @@ import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -61,6 +63,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.vinyl.launcher.data.AppInfo
 import com.vinyl.launcher.data.AppsRepository
+import com.vinyl.launcher.data.DockPosition
 import com.vinyl.launcher.data.SettingsRepository
 import com.vinyl.launcher.media.MediaRepository
 import com.vinyl.launcher.ui.home.HomeActivity
@@ -88,80 +91,80 @@ fun TaskbarBar(recents: StateFlow<List<AppInfo>>) {
     val favPkgs = favorites.map { it.packageName }.toSet()
     val recentsShown = if (settings.dock.showRecents) recentApps.filter { it.packageName !in favPkgs }.take(3) else emptyList()
 
-    AnimatedContent(
-        targetState = collapsed,
-        transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(150)) using SizeTransform(clip = false) },
-        label = "taskbar",
-        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-    ) { isCollapsed ->
-        if (isCollapsed) {
-            // Pegangan kecil: ketuk untuk membuka kembali
+    val vertical = settings.dock.position == DockPosition.LEFT || settings.dock.position == DockPosition.RIGHT
+
+    // Tanpa AnimatedContent/bayangan: jendela overlay ukurannya mengikuti isi, sehingga animasi ukuran
+    // dan bayangan yang meluber keluar jendela terlihat sebagai potongan/bayangan "glitch".
+    if (collapsed) {
+        // Pegangan kecil: ketuk untuk membuka kembali
+        Box(
+            Modifier
+                .padding(4.dp)
+                .size(width = if (vertical) 24.dp else 120.dp, height = if (vertical) 120.dp else 24.dp)
+                .clip(RoundedCornerShape(50))
+                .clickable { collapsed = false }
+                .semantics { contentDescription = "Buka taskbar" },
+            contentAlignment = Alignment.Center,
+        ) {
             Box(
                 Modifier
-                    .padding(top = 10.dp)
-                    .size(width = 120.dp, height = 22.dp)
+                    .size(width = if (vertical) 5.dp else 64.dp, height = if (vertical) 64.dp else 5.dp)
                     .clip(RoundedCornerShape(50))
-                    .clickable { collapsed = false }
-                    .semantics { contentDescription = "Buka taskbar" },
-                contentAlignment = Alignment.Center,
-            ) {
-                Box(Modifier.size(width = 64.dp, height = 5.dp).clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.55f)))
-            }
-        } else {
-            Row(
-                Modifier
-                    .shadow(18.dp, BarShape, ambientColor = Color.Black, spotColor = Color.Black)
-                    .clip(BarShape)
-                    .background(Color(0xE6151517))
-                    .background(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.06f), Color.Transparent)))
-                    .border(0.8.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.22f), Color.White.copy(alpha = 0.05f))), BarShape)
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                BarIcon(Icons.Rounded.Home, "Layar utama") { goHome(context, openDrawer = false) }
-                BarIcon(Icons.Rounded.Apps, "Semua aplikasi") { goHome(context, openDrawer = true) }
+                    .background(Color.White.copy(alpha = 0.6f)),
+            )
+        }
+    } else {
+        val content: @Composable () -> Unit = {
+            BarIcon(Icons.Rounded.Home, "Layar utama") { goHome(context, openDrawer = false) }
+            BarIcon(Icons.Rounded.Apps, "Semua aplikasi") { goHome(context, openDrawer = true) }
 
-                if (favorites.isNotEmpty()) {
-                    Divider()
-                    favorites.forEach { app ->
-                        AppButton(app, dim = false, onLongClick = {
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            openTaskbarSettings(context)
-                        }) { AppsRepository.get(context).launch(app) }
-                    }
+            if (favorites.isNotEmpty()) {
+                Divider(vertical)
+                favorites.forEach { app ->
+                    AppButton(app, dim = false, onLongClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        openTaskbarSettings(context)
+                    }) { AppsRepository.get(context).launch(app) }
                 }
-                if (recentsShown.isNotEmpty()) {
-                    Divider()
-                    recentsShown.forEach { app ->
-                        AppButton(app, dim = true, onLongClick = {}) { AppsRepository.get(context).launch(app) }
-                    }
-                }
-                if (favorites.isEmpty() && recentsShown.isEmpty()) {
-                    Text(
-                        "Tambah favorit di Pengaturan",
-                        color = Color.White.copy(alpha = 0.5f),
-                        fontSize = 13.sp,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .clickable { openTaskbarSettings(context) }
-                            .padding(horizontal = 10.dp, vertical = 8.dp),
-                    )
-                }
-                if (settings.dock.showNowPlaying && np.hasTrack) {
-                    Divider()
-                    NowPlayingChip(context)
-                }
-                Divider()
-                BarIcon(Icons.Rounded.ExpandMore, "Ciutkan taskbar", size = 22) { collapsed = true }
             }
+            if (recentsShown.isNotEmpty()) {
+                Divider(vertical)
+                recentsShown.forEach { app ->
+                    AppButton(app, dim = true, onLongClick = {}) { AppsRepository.get(context).launch(app) }
+                }
+            }
+            if (favorites.isEmpty() && recentsShown.isEmpty()) {
+                BarIcon(Icons.Rounded.Settings, "Tambah favorit di Pengaturan") { openTaskbarSettings(context) }
+            }
+            if (settings.dock.showNowPlaying && np.hasTrack) {
+                Divider(vertical)
+                NowPlayingChip(context, compact = vertical)
+            }
+            Divider(vertical)
+            BarIcon(Icons.Rounded.ExpandMore, "Ciutkan taskbar", size = 22) { collapsed = true }
+        }
+        val barModifier = Modifier
+            .padding(4.dp)
+            .clip(BarShape)
+            .background(Color(0xF2151517))
+            .border(0.8.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.22f), Color.White.copy(alpha = 0.06f))), BarShape)
+            .padding(horizontal = 10.dp, vertical = 8.dp)
+        if (vertical) {
+            Column(barModifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) { content() }
+        } else {
+            Row(barModifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) { content() }
         }
     }
 }
 
 @Composable
-private fun Divider() {
-    Box(Modifier.padding(horizontal = 4.dp).size(width = 1.dp, height = 28.dp).background(Color.White.copy(alpha = 0.14f)))
+private fun Divider(vertical: Boolean) {
+    Box(
+        Modifier
+            .padding(if (vertical) PaddingValues(vertical = 4.dp) else PaddingValues(horizontal = 4.dp))
+            .size(width = if (vertical) 28.dp else 1.dp, height = if (vertical) 1.dp else 28.dp)
+            .background(Color.White.copy(alpha = 0.14f)),
+    )
 }
 
 @Composable
@@ -189,7 +192,7 @@ private fun AppButton(app: AppInfo, dim: Boolean, onLongClick: () -> Unit, onCli
 
 /** Kartu kecil lagu: cover, judul, tombol putar/jeda. */
 @Composable
-private fun NowPlayingChip(context: Context) {
+private fun NowPlayingChip(context: Context, compact: Boolean) {
     val np by MediaRepository.state.collectAsStateWithLifecycle()
     Row(
         Modifier
@@ -204,12 +207,14 @@ private fun NowPlayingChip(context: Context) {
             if (art != null) Image(art, null, contentScale = ContentScale.Crop, modifier = Modifier.size(36.dp))
             else Icon(Icons.Rounded.MusicNote, null, tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(18.dp))
         }
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.widthIn(max = 150.dp)) {
-            Text(np.title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(np.artist, color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (!compact) {
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.widthIn(max = 150.dp)) {
+                Text(np.title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(np.artist, color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Spacer(Modifier.width(2.dp))
         }
-        Spacer(Modifier.width(2.dp))
         Box(
             Modifier.size(40.dp).clip(CircleShape).clickable { MediaRepository.togglePlayPause("Taskbar") },
             contentAlignment = Alignment.Center,

@@ -42,6 +42,8 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.vinyl.launcher.R
 import com.vinyl.launcher.data.AppInfo
 import com.vinyl.launcher.data.AppsRepository
+import com.vinyl.launcher.data.DockPosition
+import com.vinyl.launcher.data.DockSettings
 import com.vinyl.launcher.data.SettingsRepository
 import com.vinyl.launcher.ui.settings.SettingsActivity
 import com.vinyl.launcher.ui.taskbar.TaskbarBar
@@ -55,6 +57,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -111,6 +115,19 @@ class TaskbarService : Service() {
                 delay(4000)
             }
         }
+        // Pindahkan taskbar saat posisi/jarak diubah di Pengaturan
+        scope.launch {
+            SettingsRepository.get(this@TaskbarService).settings
+                .map { it.dock.position to it.dock.margin }
+                .distinctUntilChanged()
+                .collect {
+                    val v = view; val p = layoutParams
+                    if (v != null && p != null) {
+                        applyPosition(p, SettingsRepository.get(this@TaskbarService).settings.value.dock)
+                        runCatching { wm.updateViewLayout(v, p) }
+                    }
+                }
+        }
         // Tampilkan/sembunyikan sesuai: layar terkunci, layar kunci vinyl, layar penuh
         scope.launch {
             combine(
@@ -119,6 +136,20 @@ class TaskbarService : Service() {
             ) { unlocked, barsVisible, suppressed, s ->
                 unlocked && !suppressed && (barsVisible || !s.dock.hideInFullscreen)
             }.collect { show -> view?.visibility = if (show) View.VISIBLE else View.GONE }
+        }
+    }
+
+    private var layoutParams: WindowManager.LayoutParams? = null
+
+    /** Tempelkan jendela ke sisi pilihan pengguna (bawah/atas/kiri/kanan) + jarak dari tepi. */
+    private fun applyPosition(p: WindowManager.LayoutParams, dock: DockSettings) {
+        val margin = (resources.displayMetrics.density * dock.margin).toInt()
+        p.x = 0; p.y = 0
+        when (dock.position) {
+            DockPosition.BOTTOM -> { p.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL; p.y = margin }
+            DockPosition.TOP -> { p.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; p.y = margin }
+            DockPosition.LEFT -> { p.gravity = Gravity.START or Gravity.CENTER_VERTICAL; p.x = margin }
+            DockPosition.RIGHT -> { p.gravity = Gravity.END or Gravity.CENTER_VERTICAL; p.x = margin }
         }
     }
 
@@ -148,11 +179,9 @@ class TaskbarService : Service() {
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT,
-        ).apply {
-            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            y = (resources.displayMetrics.density * 6).toInt()
-            windowAnimations = android.R.style.Animation_Toast
-        }
+        )
+        applyPosition(params, SettingsRepository.get(this).settings.value.dock)
+        layoutParams = params
         runCatching { wm.addView(v, params) }.onSuccess { view = v }
     }
 

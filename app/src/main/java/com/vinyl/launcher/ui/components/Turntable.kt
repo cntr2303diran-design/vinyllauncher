@@ -115,7 +115,10 @@ fun Turntable(
     onNeedleDown: () -> Unit = {},
     /** Dipanggil saat lengan terangkat. */
     onNeedleUp: () -> Unit = {},
+    /** Klik kecil saat vinyl diputar dengan jari atau tonearm melewati tepi piringan. */
+    onTick: () -> Unit = {},
 ) {
+    val tick by rememberUpdatedState(onTick)
     val np by rememberUpdatedState(nowPlaying)
     val togglePlay by rememberUpdatedState(onTogglePlay)
     val next by rememberUpdatedState(onNext)
@@ -247,6 +250,7 @@ fun Turntable(
                 var totalDx = 0f
                 var lastAngle = atan2(pos.y - discCenter.y, pos.x - discCenter.x)
                 var scrubDeg = 0f
+                var lastScrubStep = 0
                 val startMs = np.positionAt()
                 while (true) {
                     val event = awaitPointerEvent()
@@ -266,6 +270,7 @@ fun Turntable(
                             armDragTheta = t
                             // Jarum di luar alur terluar = lengan "diangkat" dari piringan
                             val offRecord = geo.needleRadius(t) > geo.discRadius * (TonearmGeometry.OUTER + 0.03f)
+                            if (offRecord != armOffRecord) tick()
                             armOffRecord = offRecord
                             if (!offRecord) {
                                 val p = geo.progressForRadius(geo.needleRadius(t))
@@ -283,6 +288,8 @@ fun Turntable(
                             if (d < -180f) d += 360f
                             lastAngle = a
                             scrubDeg += d
+                            val step = (scrubDeg / 30f).toInt()
+                            if (step != lastScrubStep) { lastScrubStep = step; tick() }
                             angle = (angle + d) % 360f
                             if (hasTrack && np.canSeek) {
                                 val ms = (startMs + scrubDeg / 360f * SCRUB_MS_PER_REV).toLong()
@@ -382,32 +389,42 @@ fun Turntable(
 
             // ---------- Indikator waktu saat seek ----------
             if (armDragTheta != null && (armOffRecord || previewMs == null)) {
-                Text(
+                NeedleHint(
                     text = if (armOffRecord) (if (nowPlaying.isPlaying) "Lepas untuk menjeda" else "Taruh di piringan untuk memutar")
                     else "Lepas untuk memutar",
-                    color = Color.White,
-                    style = androidx.compose.material3.MaterialTheme.typography.labelLarge,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 4.dp)
-                        .glass(RoundedCornerShape(50), fillAlpha = 0.16f)
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    modifier = Modifier.align(Alignment.TopCenter),
                 )
             }
             previewMs?.let { ms ->
-                Text(
+                NeedleHint(
                     text = "${formatMs(ms)}  /  ${formatMs(nowPlaying.durationMs)}",
-                    color = Color.White,
-                    style = androidx.compose.material3.MaterialTheme.typography.labelLarge,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 4.dp)
-                        .glass(RoundedCornerShape(50), fillAlpha = 0.16f)
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    modifier = Modifier.align(Alignment.TopCenter),
                 )
             }
         }
     }
+}
+
+/**
+ * Petunjuk saat tonearm diseret: kapsul gelap pekat dengan teks putih tebal di bagian atas
+ * area turntable, supaya terbaca jelas di atas sampul atau latar apa pun.
+ */
+@Composable
+private fun NeedleHint(text: String, modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(50)
+    Text(
+        text = text,
+        color = Color.White,
+        fontSize = 16.sp,
+        fontWeight = FontWeight.Bold,
+        textAlign = TextAlign.Center,
+        modifier = modifier
+            .padding(top = 4.dp)
+            .clip(shape)
+            .background(Color(0xF2000000))
+            .border(1.dp, Color.White.copy(alpha = 0.4f), shape)
+            .padding(horizontal = 20.dp, vertical = 11.dp),
+    )
 }
 
 /** Sampul album persegi: sudut membulat halus, bayangan dua lapis (lembut + tajam) ala Apple Music. */

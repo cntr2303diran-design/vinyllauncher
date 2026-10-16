@@ -98,6 +98,9 @@ import com.vinyl.launcher.ui.theme.toAlignment
 import com.vinyl.launcher.ui.theme.toColor
 import com.vinyl.launcher.ui.theme.toComposeColor
 import com.vinyl.launcher.util.SystemActions
+import com.vinyl.launcher.util.SoundFx
+import com.vinyl.launcher.data.DockPosition
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import kotlin.math.roundToInt
 
 /** Warna netral saat tidak ada musik. */
@@ -120,6 +123,13 @@ fun HomeScreen(vm: HomeViewModel) {
     val haptics = LocalHapticFeedback.current
     val editing = draft != null
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+
+    // Kresek vinyl (opsional): hanya saat layar utama terlihat & lagu diputar
+    val crackleOn = settings.effects.crackle && np.isPlaying
+    LifecycleResumeEffect(crackleOn, settings.effects.volume) {
+        if (crackleOn) SoundFx.startCrackle(settings.effects.volume)
+        onPauseOrDispose { SoundFx.stopCrackle() }
+    }
 
     // Warna dari cover album (Palette); netral saat tidak ada musik
     val dominant = if (np.hasTrack) np.dominantColor?.toComposeColor() ?: NeutralBg else NeutralBg
@@ -183,8 +193,13 @@ fun HomeScreen(vm: HomeViewModel) {
                         onDragEnd = { if (total < -160f) vm.openCrate() },
                     ) { change, dx -> change.consume(); total += dx }
                 }
-                // Sisakan ruang untuk Taskbar Vinyl di bawah
-                .padding(bottom = if (settings.dock.enabled && !editing) 76.dp else 0.dp)
+                // Sisakan ruang untuk Taskbar Vinyl di sisi tempat ia menempel
+                .padding(
+                    start = if (settings.dock.enabled && !editing && settings.dock.position == DockPosition.LEFT) (76 + settings.dock.margin).dp else 0.dp,
+                    top = if (settings.dock.enabled && !editing && settings.dock.position == DockPosition.TOP) (76 + settings.dock.margin).dp else 0.dp,
+                    end = if (settings.dock.enabled && !editing && settings.dock.position == DockPosition.RIGHT) (76 + settings.dock.margin).dp else 0.dp,
+                    bottom = if (settings.dock.enabled && !editing && settings.dock.position == DockPosition.BOTTOM) (76 + settings.dock.margin).dp else 0.dp,
+                )
         ) {
             HomeContent(
                 home = home,
@@ -297,6 +312,7 @@ private fun HomeContent(
                 onOpenMusic = vm::openMusic,
                 onNeedleDown = vm::needleDown,
                 onNeedleUp = vm::needleUp,
+                onTick = vm::tick,
                 modifier = Modifier.size(ttWidth, ttHeight),
             )
             if (showInfo) {

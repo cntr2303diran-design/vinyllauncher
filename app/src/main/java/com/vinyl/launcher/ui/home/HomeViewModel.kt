@@ -141,16 +141,13 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------- Musik ----------
     fun togglePlay() = MediaRepository.togglePlayPause("Turntable")
-    fun next() = MediaRepository.next()
-    fun previous() = MediaRepository.previous()
+    fun next() { SoundFx.flip(getApplication(), settings.value.effects); MediaRepository.next() }
+    fun previous() { SoundFx.flip(getApplication(), settings.value.effects); MediaRepository.previous() }
     fun seek(ms: Long) = MediaRepository.seekTo(ms)
     fun openMusic() = MediaRepository.openMusicApp(getApplication())
 
     // ---------- Efek jarum ----------
-    fun needleDown() = settings.value.effects.let {
-        SoundFx.needleDown(getApplication(), it.needleSound, it.haptics, it.volume)
-    }
-    fun needleUp() = settings.value.effects.let {
-        SoundFx.needleUp(getApplication(), it.needleSound, it.haptics, it.volume)
-    }
+    fun needleDown() = SoundFx.needleDown(getApplication(), settings.value.effects)
+    fun needleUp() = SoundFx.needleUp(getApplication(), settings.value.effects)
+    fun tick() = SoundFx.tick(getApplication(), settings.value.effects)
 }

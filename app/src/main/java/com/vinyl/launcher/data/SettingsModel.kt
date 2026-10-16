@@ -121,6 +121,10 @@ data class GestureSettings(
     val doubleTap: GestureBinding = GestureBinding(GestureAction.LOCK_SCREEN),
 )
 
+/** Sisi layar tempat Taskbar Vinyl menempel. */
+@Serializable
+enum class DockPosition { BOTTOM, TOP, LEFT, RIGHT }
+
 /**
  * Taskbar Vinyl: bar kaca yang melayang di atas semua aplikasi
  * (pengganti taskbar Samsung yang dimatikan sistem untuk launcher pihak ketiga).
@@ -136,6 +140,10 @@ data class DockSettings(
     val showNowPlaying: Boolean = true,
     /** Sembunyikan taskbar saat aplikasi berjalan layar penuh (video, game). */
     val hideInFullscreen: Boolean = true,
+    /** Sisi layar tempat taskbar menempel (default bawah). */
+    val position: DockPosition = DockPosition.BOTTOM,
+    /** Jarak tambahan dari tepi layar (dp). */
+    val margin: Int = 0,
 )
 
 /** Efek suara & getar ala turntable sungguhan. */
@@ -144,7 +152,13 @@ data class EffectSettings(
     val needleSound: Boolean = true,
     val haptics: Boolean = true,
     /** Volume efek (0..1), relatif terhadap volume media. */
-    val volume: Float = 0.35f,
+    val volume: Float = 0.7f,
+    /** Kekuatan getar (0.3..1). */
+    val hapticStrength: Float = 1f,
+    /** Bunyi & getar saat vinyl diputar dengan jari, tonearm digeser, atau ganti lagu. */
+    val interactionFx: Boolean = true,
+    /** Kresek vinyl terus-menerus (pelan) selama lagu diputar di layar utama. */
+    val crackle: Boolean = false,
 )
 
 @Serializable
