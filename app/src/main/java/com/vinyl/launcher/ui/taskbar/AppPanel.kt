@@ -105,7 +105,7 @@ fun AppPanel(onClose: () -> Unit) {
                             .clip(RoundedCornerShape(16.dp))
                             .clickable {
                                 onClose()
-                                AppsRepository.get(context).launch(app)
+                                AppsRepository.get(context).open(app, dock.windowed)
                             }
                             .padding(vertical = 8.dp, horizontal = 2.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,

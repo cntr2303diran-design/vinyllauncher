@@ -14,6 +14,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import com.vinyl.launcher.ui.components.rememberBattery
+import com.vinyl.launcher.ui.components.rememberNow
+import com.vinyl.launcher.util.SystemActions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -125,13 +133,13 @@ fun TaskbarBar(recents: StateFlow<List<AppInfo>>) {
                     AppButton(app, dim = false, onLongClick = {
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         openTaskbarSettings(context)
-                    }) { AppsRepository.get(context).launch(app) }
+                    }) { AppsRepository.get(context).open(app, settings.dock.windowed) }
                 }
             }
             if (recentsShown.isNotEmpty()) {
                 Divider(vertical)
                 recentsShown.forEach { app ->
-                    AppButton(app, dim = true, onLongClick = {}) { AppsRepository.get(context).launch(app) }
+                    AppButton(app, dim = true, onLongClick = {}) { AppsRepository.get(context).open(app, settings.dock.windowed) }
                 }
             }
             if (favorites.isEmpty() && recentsShown.isEmpty()) {
@@ -140,6 +148,10 @@ fun TaskbarBar(recents: StateFlow<List<AppInfo>>) {
             if (settings.dock.showNowPlaying && np.hasTrack) {
                 Divider(vertical)
                 NowPlayingChip(context, compact = vertical)
+            }
+            if (settings.dock.pcStyle) {
+                Divider(vertical)
+                SystemTray(vertical)
             }
             Divider(vertical)
             BarIcon(Icons.Rounded.ExpandMore, "Ciutkan taskbar", size = 22) { TaskbarState.setAppPanel(false); collapsed = true }
@@ -155,6 +167,33 @@ fun TaskbarBar(recents: StateFlow<List<AppInfo>>) {
         } else {
             Row(barModifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) { content() }
         }
+    }
+}
+
+/** Area sistem ala PC: baterai, jam & tanggal. Ketuk untuk membuka panel notifikasi. */
+@Composable
+private fun SystemTray(vertical: Boolean) {
+    val context = LocalContext.current
+    val now by rememberNow()
+    val battery = rememberBattery()
+    val time = remember(now.hour, now.minute) { "%02d:%02d".format(now.hour, now.minute) }
+    val date = remember(now.dayOfYear) {
+        java.time.format.DateTimeFormatter.ofPattern("EEE, d MMM", java.util.Locale.forLanguageTag("id-ID")).format(now)
+    }
+    Column(
+        Modifier
+            .clip(RoundedCornerShape(14.dp))
+            .clickable { SystemActions.expandNotifications(context) }
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        horizontalAlignment = if (vertical) Alignment.CenterHorizontally else Alignment.End,
+    ) {
+        Text(time, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            if (vertical) "${battery.level}%" else "$date  ·  ${battery.level}%",
+            color = Color.White.copy(alpha = 0.6f),
+            fontSize = 11.sp,
+            maxLines = 1,
+        )
     }
 }
 
@@ -176,14 +215,23 @@ private fun BarIcon(icon: ImageVector, desc: String, size: Int = 26, onClick: ()
     ) { Icon(icon, desc, tint = Color.White.copy(alpha = 0.9f), modifier = Modifier.size(size.dp)) }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun AppButton(app: AppInfo, dim: Boolean, onLongClick: () -> Unit, onClick: () -> Unit) {
+    // Ikon membesar saat disentuh (ala dock macOS)
+    var pressed by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(if (pressed) 1.3f else 1f, spring(dampingRatio = 0.55f, stiffness = 500f), label = "iconScale")
     Box(
         Modifier
             .size(48.dp)
+            .graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(RoundedCornerShape(14.dp))
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = { pressed = true; tryAwaitRelease(); pressed = false },
+                    onTap = { onClick() },
+                    onLongPress = { onLongClick() },
+                )
+            }
             .semantics { contentDescription = app.label },
         contentAlignment = Alignment.Center,
     ) {

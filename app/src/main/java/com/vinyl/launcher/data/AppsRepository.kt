@@ -93,6 +93,19 @@ class AppsRepository private constructor(private val context: Context) {
         runCatching { launcherApps.startMainActivity(app.component, app.user, bounds, null) }
     }
 
+    /** Buka sebagai jendela di tengah layar (±62% × 70%); jika sistem tidak mendukung, terbuka biasa. */
+    fun open(app: AppInfo, windowed: Boolean) {
+        if (!windowed) { launch(app); return }
+        val dm = context.resources.displayMetrics
+        val w = (dm.widthPixels * 0.62f).toInt()
+        val h = (dm.heightPixels * 0.7f).toInt()
+        val l = (dm.widthPixels - w) / 2
+        val t = (dm.heightPixels - h) / 2
+        val opts = android.app.ActivityOptions.makeBasic().setLaunchBounds(Rect(l, t, l + w, t + h)).toBundle()
+        runCatching { launcherApps.startMainActivity(app.component, app.user, null, opts) }
+            .onFailure { launch(app) }
+    }
+
     fun launchPackage(pkg: String) {
         findByPackage(pkg)?.let { launch(it) } ?: run {
             context.packageManager.getLaunchIntentForPackage(pkg)?.let {

@@ -144,6 +144,10 @@ data class DockSettings(
     val position: DockPosition = DockPosition.BOTTOM,
     /** Jarak tambahan dari tepi layar (dp). */
     val margin: Int = 0,
+    /** Gaya PC: jam, tanggal & baterai di taskbar, ikon membesar saat disentuh. */
+    val pcStyle: Boolean = true,
+    /** Buka aplikasi sebagai jendela melayang (butuh "jendela bentuk bebas" aktif di sistem). */
+    val windowed: Boolean = false,
 )
 
 /** Efek suara & getar ala turntable sungguhan. */

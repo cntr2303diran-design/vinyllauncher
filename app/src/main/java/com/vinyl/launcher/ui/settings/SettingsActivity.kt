@@ -177,6 +177,10 @@ private fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
                         }
                     }
                     if (s.dock.apps.size < MAX_DOCK_APPS) TextButton(onClick = { pickDock = -1 }) { Text("+ Tambah favorit (${s.dock.apps.size}/$MAX_DOCK_APPS)") }
+                    SwitchRow("Gaya PC", s.dock.pcStyle, { on -> vm.update { it.copy(dock = it.dock.copy(pcStyle = on)) } },
+                        subtitle = "Jam, tanggal & baterai di taskbar; ikon membesar saat disentuh")
+                    SwitchRow("Buka aplikasi sebagai jendela", s.dock.windowed, { on -> vm.update { it.copy(dock = it.dock.copy(windowed = on)) } },
+                        subtitle = "Jendela melayang di tengah layar. Aktifkan dulu \"Jendela bentuk bebas\" di Opsi pengembang; kalau tidak, aplikasi terbuka biasa")
                     ChipRow("Posisi taskbar", DockPosition.entries, s.dock.position, {
                         when (it) { DockPosition.BOTTOM -> "Bawah"; DockPosition.TOP -> "Atas"; DockPosition.LEFT -> "Kiri"; DockPosition.RIGHT -> "Kanan" }
                     }) { pos -> vm.update { st -> st.copy(dock = st.dock.copy(position = pos)) } }
