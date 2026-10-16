@@ -1,0 +1,297 @@
+package com.vinyl.launcher.media
+
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.media.MediaMetadata
+import android.media.session.MediaController
+import android.media.session.MediaSessionManager
+import android.media.session.PlaybackState
+import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
+import android.util.Log
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.graphics.scale
+import androidx.palette.graphics.Palette
+import com.vinyl.launcher.service.MediaListenerService
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+/**
+ * Status lagu yang sedang diputar (atau terakhir diputar).
+ * Posisi dihitung dari snapshot PlaybackState + waktu berlalu, sehingga UI
+ * cukup memanggil [positionAt] tiap frame tanpa polling ke aplikasi musik.
+ */
+data class NowPlaying(
+    val hasSession: Boolean = false,
+    val packageName: String? = null,
+    val title: String = "",
+    val artist: String = "",
+    val album: String = "",
+    val art: ImageBitmap? = null,
+    val durationMs: Long = 0L,
+    val isPlaying: Boolean = false,
+    /** Warna dominan cover (ARGB) dari Palette API, null jika tidak ada cover. */
+    val dominantColor: Int? = null,
+    /** Warna aksen cerah dari cover, untuk label vinyl. */
+    val accentColor: Int? = null,
+    val positionMs: Long = 0L,
+    val positionUpdateTime: Long = 0L,
+    val speed: Float = 1f,
+    val canSeek: Boolean = false,
+) {
+    /** True jika ada metadata yang layak ditampilkan. */
+    val hasTrack: Boolean get() = hasSession && title.isNotBlank()
+
+    /** Posisi pemutaran terkini (ms), diekstrapolasi dari snapshot terakhir. */
+    fun positionAt(now: Long = SystemClock.elapsedRealtime()): Long {
+        val elapsed = if (isPlaying) ((now - positionUpdateTime) * speed).toLong() else 0L
+        val pos = positionMs + elapsed
+        return if (durationMs > 0) pos.coerceIn(0, durationMs) else pos.coerceAtLeast(0)
+    }
+
+    val progress: Float get() = if (durationMs > 0) positionAt().toFloat() / durationMs else 0f
+}
+
+/**
+ * Integrasi MediaSessionManager.
+ * Membaca semua sesi media aktif (izin akses notifikasi diperlukan),
+ * memilih sesi yang sedang memutar, lalu mengekspos metadata & kontrol.
+ */
+object MediaRepository {
+    private const val TAG = "MediaRepository"
+
+    private val _state = MutableStateFlow(NowPlaying())
+    val state: StateFlow<NowPlaying> = _state.asStateFlow()
+
+    private lateinit var appContext: Context
+    private val handler = Handler(Looper.getMainLooper())
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    private var sessionManager: MediaSessionManager? = null
+    private var controllers: List<MediaController> = emptyList()
+    private val callbacks = mutableMapOf<MediaController, MediaController.Callback>()
+    private var active: MediaController? = null
+    private var connected = false
+
+    /** Paket aplikasi musik default (diisi dari pengaturan). */
+    @Volatile var defaultMusicPackage: String? = null
+        set(value) { field = value; if (connected) chooseActive() }
+
+    // Cache cover & palette per lagu agar tidak dihitung ulang
+    private var artKey: String? = null
+    private var artJob: Job? = null
+    private var cachedArt: ImageBitmap? = null
+    private var cachedDominant: Int? = null
+    private var cachedAccent: Int? = null
+
+    fun init(context: Context) {
+        appContext = context.applicationContext
+    }
+
+    fun hasNotificationAccess(context: Context): Boolean =
+        NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
+
+    private val sessionsListener = MediaSessionManager.OnActiveSessionsChangedListener { list ->
+        onSessionsChanged(list.orEmpty())
+    }
+
+    /**
+     * Mulai mendengarkan sesi media. Aman dipanggil berkali-kali; dipanggil dari
+     * MediaListenerService.onListenerConnected dan saat activity kembali aktif.
+     */
+    fun connect() {
+        if (!::appContext.isInitialized || connected) return
+        if (!hasNotificationAccess(appContext)) return
+        val msm = appContext.getSystemService(MediaSessionManager::class.java) ?: return
+        val component = ComponentName(appContext, MediaListenerService::class.java)
+        try {
+            msm.addOnActiveSessionsChangedListener(sessionsListener, component, handler)
+            sessionManager = msm
+            connected = true
+            onSessionsChanged(msm.getActiveSessions(component))
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Akses notifikasi belum diberikan", e)
+        }
+    }
+
+    fun disconnect() {
+        sessionManager?.removeOnActiveSessionsChangedListener(sessionsListener)
+        callbacks.forEach { (c, cb) -> c.unregisterCallback(cb) }
+        callbacks.clear()
+        controllers = emptyList()
+        active = null
+        connected = false
+        _state.value = NowPlaying()
+    }
+
+    private fun onSessionsChanged(list: List<MediaController>) {
+        // Lepas callback dari sesi yang sudah hilang
+        val tokens = list.map { it.sessionToken }.toSet()
+        callbacks.keys.filter { it.sessionToken !in tokens }.forEach { c ->
+            callbacks.remove(c)?.let { c.unregisterCallback(it) }
+        }
+        controllers = list
+        // Daftarkan callback ke semua sesi agar tahu ketika sesi lain mulai memutar
+        list.forEach { c ->
+            if (callbacks.keys.none { it.sessionToken == c.sessionToken }) {
+                val cb = object : MediaController.Callback() {
+                    override fun onPlaybackStateChanged(state: PlaybackState?) = chooseActive()
+                    override fun onMetadataChanged(metadata: MediaMetadata?) = chooseActive()
+                    override fun onSessionDestroyed() = chooseActive()
+                }
+                c.registerCallback(cb, handler)
+                callbacks[c] = cb
+            }
+        }
+        chooseActive()
+    }
+
+    /** Prioritas: sesi yang sedang memutar → aplikasi default → sesi pertama dengan metadata. */
+    private fun chooseActive() {
+        val list = callbacks.keys.toList()
+        val chosen = list.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING }
+            ?: list.firstOrNull { it.packageName == defaultMusicPackage && it.metadata != null }
+            ?: list.firstOrNull { it.metadata != null }
+            ?: list.firstOrNull()
+        active = chosen
+        publish(chosen)
+    }
+
+    private fun publish(c: MediaController?) {
+        if (c == null) {
+            _state.value = NowPlaying()
+            return
+        }
+        val md = c.metadata
+        val ps = c.playbackState
+        val title = md?.getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE)
+            ?: md?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: ""
+        val artist = md?.getString(MediaMetadata.METADATA_KEY_ARTIST)
+            ?: md?.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)
+            ?: md?.getString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE) ?: ""
+        val album = md?.getString(MediaMetadata.METADATA_KEY_ALBUM) ?: ""
+        val key = "${c.packageName}|$title|$artist|$album"
+        val playing = ps?.state == PlaybackState.STATE_PLAYING ||
+            ps?.state == PlaybackState.STATE_BUFFERING
+        val actions = ps?.actions ?: 0L
+
+        _state.update { _ ->
+            NowPlaying(
+                hasSession = true,
+                packageName = c.packageName,
+                title = title,
+                artist = artist,
+                album = album,
+                art = if (key == artKey) cachedArt else null,
+                durationMs = md?.getLong(MediaMetadata.METADATA_KEY_DURATION)?.coerceAtLeast(0) ?: 0L,
+                isPlaying = playing,
+                dominantColor = if (key == artKey) cachedDominant else null,
+                accentColor = if (key == artKey) cachedAccent else null,
+                positionMs = ps?.position ?: 0L,
+                positionUpdateTime = ps?.lastPositionUpdateTime?.takeIf { t -> t > 0 }
+                    ?: SystemClock.elapsedRealtime(),
+                speed = ps?.playbackSpeed?.takeIf { s -> s > 0f } ?: 1f,
+                canSeek = (actions and PlaybackState.ACTION_SEEK_TO) != 0L,
+            )
+        }
+        if (key != artKey) loadArt(key, md)
+    }
+
+    /** Ambil cover dari metadata (bitmap atau URI), lalu hitung warna dengan Palette. */
+    private fun loadArt(key: String, md: MediaMetadata?) {
+        artKey = key
+        cachedArt = null; cachedDominant = null; cachedAccent = null
+        artJob?.cancel()
+        artJob = scope.launch {
+            val result = withContext(Dispatchers.Default) {
+                val bmp = md?.let { extractBitmap(it) } ?: return@withContext null
+                val scaled = if (bmp.width > 768 || bmp.height > 768) {
+                    val f = 768f / maxOf(bmp.width, bmp.height)
+                    bmp.scale((bmp.width * f).toInt().coerceAtLeast(1), (bmp.height * f).toInt().coerceAtLeast(1))
+                } else bmp
+                val safe = if (scaled.config == Bitmap.Config.HARDWARE)
+                    scaled.copy(Bitmap.Config.ARGB_8888, false) else scaled
+                val palette = Palette.from(safe).maximumColorCount(16).generate()
+                val dominant = palette.getDominantColor(0xFF1B1B1F.toInt())
+                val accent = palette.getVibrantColor(palette.getLightVibrantColor(palette.getMutedColor(dominant)))
+                Triple(safe.asImageBitmap(), dominant, accent)
+            }
+            if (artKey != key) return@launch
+            cachedArt = result?.first
+            cachedDominant = result?.second
+            cachedAccent = result?.third
+            _state.update { s ->
+                if (s.title.isEmpty() && result == null) s
+                else s.copy(art = cachedArt, dominantColor = cachedDominant, accentColor = cachedAccent)
+            }
+        }
+    }
+
+    private fun extractBitmap(md: MediaMetadata): Bitmap? {
+        md.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)?.let { return it }
+        md.getBitmap(MediaMetadata.METADATA_KEY_ART)?.let { return it }
+        md.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)?.let { return it }
+        val uri = md.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
+            ?: md.getString(MediaMetadata.METADATA_KEY_ART_URI)
+            ?: md.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
+            ?: return null
+        return runCatching {
+            val u = Uri.parse(uri)
+            if (u.scheme == "content" || u.scheme == "file" || u.scheme == "android.resource") {
+                appContext.contentResolver.openInputStream(u)?.use { BitmapFactory.decodeStream(it) }
+            } else null // URL http(s) tidak diunduh; sebagian besar aplikasi sudah mengirim bitmap
+        }.getOrNull()
+    }
+
+    // ===================== Kontrol =====================
+
+    fun togglePlayPause() {
+        val c = active ?: return
+        if (c.playbackState?.state == PlaybackState.STATE_PLAYING) c.transportControls.pause()
+        else c.transportControls.play()
+        // Respons instan di UI; status asli menyusul lewat callback
+        _state.update {
+            it.copy(
+                isPlaying = !it.isPlaying,
+                positionMs = it.positionAt(),
+                positionUpdateTime = SystemClock.elapsedRealtime(),
+            )
+        }
+    }
+
+    fun next() { active?.transportControls?.skipToNext() }
+    fun previous() { active?.transportControls?.skipToPrevious() }
+
+    fun seekTo(ms: Long) {
+        val c = active ?: return
+        val target = if (_state.value.durationMs > 0) ms.coerceIn(0, _state.value.durationMs) else ms.coerceAtLeast(0)
+        c.transportControls.seekTo(target)
+        _state.update { it.copy(positionMs = target, positionUpdateTime = SystemClock.elapsedRealtime()) }
+    }
+
+    /** Buka aplikasi musik: default → sesi aktif → pemilih aplikasi musik sistem. */
+    fun openMusicApp(context: Context) {
+        val pm = context.packageManager
+        val pkg = defaultMusicPackage ?: _state.value.packageName
+        val intent = pkg?.let { pm.getLaunchIntentForPackage(it) }
+            ?: Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_MUSIC)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { context.startActivity(intent) }
+            .onFailure { Log.w(TAG, "Tidak ada aplikasi musik", it) }
+    }
+}

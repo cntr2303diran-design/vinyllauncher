@@ -1,0 +1,395 @@
+package com.vinyl.launcher.ui.components
+
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.vinyl.launcher.data.TonearmStyle
+import com.vinyl.launcher.data.VinylStyle
+import com.vinyl.launcher.media.NowPlaying
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.min
+import kotlin.math.roundToInt
+
+/** Rasio lebar : tinggi area turntable (sampul + vinyl yang keluar + tonearm). */
+const val TURNTABLE_ASPECT = 1.72f
+
+/** Satu putaran vinyl dengan jari = maju/mundur sekian milidetik. */
+private const val SCRUB_MS_PER_REV = 6000f
+
+private enum class Target { NONE, COVER, VINYL, ARM }
+
+/** Gaya visual turntable (subset dari HomeSettings agar komponen mudah dipakai ulang). */
+data class TurntableStyle(
+    val vinylStyle: VinylStyle = VinylStyle.CLASSIC,
+    val tonearmStyle: TonearmStyle = TonearmStyle.SILVER,
+    val coverVisible: Boolean = true,
+    val coverRounded: Boolean = true,
+    val coverShadow: Boolean = true,
+    val rpm: Int = 33,
+)
+
+/**
+ * Turntable utama: sampul album di kiri, vinyl setengah keluar ke kanan, tonearm di kanan atas.
+ *
+ * Animasi:
+ * - Play: vinyl meluncur keluar → tonearm turun → vinyl berakselerasi ke 33/45 RPM.
+ * - Pause: tonearm naik → vinyl melambat & berhenti → masuk sebagian ke sampul.
+ *
+ * Interaksi (semua dalam satu detektor agar area yang bertumpuk tidak saling menghalangi):
+ * - Ketuk sampul = play/pause (atau buka aplikasi musik jika tidak ada lagu)
+ * - Geser sampul ke kiri/kanan = next/previous
+ * - Seret tonearm = seek
+ * - Putar vinyl dengan jari = maju/mundur
+ */
+@Composable
+fun Turntable(
+    nowPlaying: NowPlaying,
+    style: TurntableStyle,
+    labelColor: Color,
+    discTint: Color,
+    modifier: Modifier = Modifier,
+    interactive: Boolean = true,
+    onTogglePlay: () -> Unit = {},
+    onNext: () -> Unit = {},
+    onPrevious: () -> Unit = {},
+    onSeek: (Long) -> Unit = {},
+    onOpenMusic: () -> Unit = {},
+) {
+    val np by rememberUpdatedState(nowPlaying)
+    val togglePlay by rememberUpdatedState(onTogglePlay)
+    val next by rememberUpdatedState(onNext)
+    val previous by rememberUpdatedState(onPrevious)
+    val seek by rememberUpdatedState(onSeek)
+    val openMusic by rememberUpdatedState(onOpenMusic)
+    val hasTrack = nowPlaying.hasTrack
+    val playing = nowPlaying.isPlaying && hasTrack
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+
+    // ---------- Status animasi ----------
+    var angle by remember { mutableFloatStateOf(0f) }          // derajat
+    var velocity by remember { mutableFloatStateOf(0f) }       // derajat/detik
+    var progress by remember { mutableFloatStateOf(nowPlaying.progress) }
+    var scrubbing by remember { mutableStateOf(false) }
+    var armDragTheta by remember { mutableStateOf<Float?>(null) }
+    var previewMs by remember { mutableStateOf<Long?>(null) }   // posisi pratinjau saat seek
+    val coverOffset = remember { Animatable(0f) }
+
+    val degPerSec = (if (style.rpm == 45) 45f else 33.333f) * 6f
+
+    val slide by animateFloatAsState(
+        targetValue = if (playing) 0.62f else 0.42f,
+        animationSpec = tween(800, delayMillis = if (playing) 0 else 650, easing = FastOutSlowInEasing),
+        label = "slide",
+    )
+    val engage by animateFloatAsState(
+        targetValue = if (playing) 1f else 0f,
+        animationSpec = tween(650, delayMillis = if (playing) 450 else 0, easing = FastOutSlowInEasing),
+        label = "engage",
+    )
+
+    // Loop frame: kecepatan putar naik/turun halus; hanya berjalan saat perlu (hemat baterai)
+    LaunchedEffect(playing, degPerSec) {
+        var last = 0L
+        while (isActive) {
+            withFrameNanos { t ->
+                val dt = if (last == 0L) 0f else (t - last) / 1_000_000_000f
+                last = t
+                val target = if (playing) degPerSec else 0f
+                // Akselerasi ±0.8 dtk saat mulai, deselerasi ±1.5 dtk saat berhenti
+                val accel = if (target > velocity) degPerSec / 0.8f else degPerSec / 1.5f
+                velocity = when {
+                    velocity < target -> min(target, velocity + accel * dt)
+                    else -> maxOf(target, velocity - accel * dt)
+                }
+                if (!scrubbing) angle = (angle + velocity * dt) % 360f
+                if (armDragTheta == null && previewMs == null) progress = np.progress
+            }
+            if (!playing && velocity <= 0f) break
+        }
+    }
+    LaunchedEffect(nowPlaying) { if (armDragTheta == null) progress = nowPlaying.progress }
+
+    BoxWithConstraints(
+        modifier.semantics {
+            contentDescription = if (hasTrack) "${nowPlaying.title} oleh ${nowPlaying.artist}" else "Tidak ada yang diputar"
+        }
+    ) {
+        val w = constraints.maxWidth.toFloat()
+        val h = constraints.maxHeight.toFloat()
+        val s = min(w / TURNTABLE_ASPECT, h)                 // sisi sampul (px)
+        val discR = s * 0.47f
+        val ox = (w - s * TURNTABLE_ASPECT) / 2f
+        val oy = (h - s) / 2f
+        val cy = oy + s / 2f
+        val discCx = ox + s / 2f + slide * s
+        val playCx = ox + s / 2f + 0.62f * s
+        val geo = remember(s, ox, oy) {
+            val pivot = Offset(playCx + discR * 1.08f, cy - discR * 0.86f)
+            val c = Offset(playCx, cy)
+            TonearmGeometry(pivot, (pivot - c).getDistance(), c, discR)
+        }
+        val coverRect = Rect(ox, oy, ox + s, oy + s)
+
+        // Sudut lengan: istirahat ↔ posisi sesuai progress lagu
+        val playTheta = geo.thetaForProgress(progress)
+        val armTheta = armDragTheta ?: (TonearmGeometry.REST_THETA + (playTheta - TonearmGeometry.REST_THETA) * engage)
+        val lift = if (armDragTheta != null) 0.6f else 1f - engage
+        val armSlop = with(density) { 30.dp.toPx() }
+        // Nilai yang berubah tiap frame dibaca lewat State agar detektor gestur tidak memakai nilai basi
+        val discCxNow by rememberUpdatedState(discCx)
+        val armThetaNow by rememberUpdatedState(armTheta)
+
+        val gestureModifier = if (!interactive) Modifier else Modifier.pointerInput(s, ox, oy, hasTrack, style.coverVisible) {
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false)
+                val pos = down.position
+                val discCenter = Offset(discCxNow, cy)
+                val target = when {
+                    hasTrack && np.canSeek && geo.distanceToArm(pos, armThetaNow) < armSlop -> Target.ARM
+                    style.coverVisible && coverRect.contains(pos) -> Target.COVER
+                    (pos - discCenter).getDistance() < discR -> Target.VINYL
+                    !style.coverVisible && coverRect.contains(pos) -> Target.VINYL
+                    else -> Target.NONE
+                }
+                if (target == Target.NONE) return@awaitEachGesture
+                down.consume()
+
+                var moved = false
+                var totalDx = 0f
+                var lastAngle = atan2(pos.y - discCenter.y, pos.x - discCenter.x)
+                var scrubDeg = 0f
+                val startMs = np.positionAt()
+                while (true) {
+                    val event = awaitPointerEvent()
+                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    if (!change.pressed) break
+                    if (!moved && (change.position - pos).getDistance() > viewConfiguration.touchSlop) moved = true
+                    if (!moved) continue
+                    change.consume()
+                    when (target) {
+                        Target.COVER -> {
+                            totalDx += change.position.x - change.previousPosition.x
+                            if (hasTrack) scope.launch { coverOffset.snapTo(totalDx * 0.6f) }
+                        }
+                        Target.ARM -> {
+                            val t = geo.thetaToward(change.position)
+                                .coerceIn(TonearmGeometry.REST_THETA, geo.thetaForProgress(1f))
+                            armDragTheta = t
+                            val p = geo.progressForRadius(geo.needleRadius(t))
+                            progress = p
+                            previewMs = (p * np.durationMs).toLong()
+                        }
+                        Target.VINYL -> {
+                            scrubbing = true
+                            val a = atan2(change.position.y - discCenter.y, change.position.x - discCenter.x)
+                            var d = Math.toDegrees((a - lastAngle).toDouble()).toFloat()
+                            if (d > 180f) d -= 360f
+                            if (d < -180f) d += 360f
+                            lastAngle = a
+                            scrubDeg += d
+                            angle = (angle + d) % 360f
+                            if (hasTrack && np.canSeek) {
+                                val ms = (startMs + scrubDeg / 360f * SCRUB_MS_PER_REV).toLong()
+                                previewMs = if (np.durationMs > 0) ms.coerceIn(0, np.durationMs) else ms.coerceAtLeast(0)
+                                if (np.durationMs > 0) progress = previewMs!!.toFloat() / np.durationMs
+                            }
+                        }
+                        Target.NONE -> Unit
+                    }
+                }
+
+                // ---- Jari diangkat ----
+                when (target) {
+                    Target.COVER -> {
+                        if (!moved) {
+                            if (hasTrack) togglePlay() else openMusic()
+                        } else if (hasTrack && abs(totalDx) > s * 0.22f) {
+                            if (totalDx < 0) next() else previous()
+                        }
+                        scope.launch { coverOffset.animateTo(0f, spring(dampingRatio = 0.6f, stiffness = 300f)) }
+                    }
+                    Target.ARM -> {
+                        previewMs?.let { seek(it) }
+                        armDragTheta = null
+                    }
+                    Target.VINYL -> {
+                        if (moved) previewMs?.let { seek(it) }
+                        else if (!hasTrack) openMusic()
+                        scrubbing = false
+                    }
+                    Target.NONE -> Unit
+                }
+                previewMs = null
+            }
+        }
+
+        Box(Modifier.fillMaxSize().then(gestureModifier)) {
+            // ---------- Vinyl (di belakang sampul) ----------
+            val discSizeDp = with(density) { (discR * 2).toDp() }
+            VinylDisc(
+                modifier = Modifier
+                    .offset { IntOffset((discCx - discR).roundToInt(), (cy - discR).roundToInt()) }
+                    .size(discSizeDp),
+                rotation = angle,
+                style = style.vinylStyle,
+                labelColor = labelColor,
+                discTint = discTint,
+                label = VinylLabel.Text(
+                    title = if (hasTrack) nowPlaying.title else "Tidak ada yang diputar",
+                    subtitle = if (hasTrack) nowPlaying.artist else "Ketuk untuk membuka musik",
+                ),
+                art = nowPlaying.art,
+            )
+
+            // ---------- Sampul album ----------
+            if (style.coverVisible) {
+                val coverDp = with(density) { s.toDp() }
+                AlbumCover(
+                    art = if (hasTrack) nowPlaying.art else null,
+                    rounded = style.coverRounded,
+                    shadow = style.coverShadow,
+                    placeholderText = if (hasTrack) nowPlaying.album.ifBlank { nowPlaying.title } else "Tidak ada yang diputar",
+                    modifier = Modifier
+                        .offset { IntOffset(ox.roundToInt(), oy.roundToInt()) }
+                        .size(coverDp)
+                        .graphicsLayer {
+                            translationX = coverOffset.value
+                            rotationZ = coverOffset.value / s * 6f
+                        },
+                )
+            }
+
+            // ---------- Tonearm ----------
+            Canvas(Modifier.fillMaxSize()) {
+                drawTonearm(geo, armTheta, lift, style.tonearmStyle)
+            }
+
+            // ---------- Indikator waktu saat seek ----------
+            previewMs?.let { ms ->
+                Text(
+                    text = "${formatMs(ms)} / ${formatMs(nowPlaying.durationMs)}",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 4.dp)
+                        .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(50))
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                )
+            }
+        }
+    }
+}
+
+/** Sampul album persegi dengan sudut membulat & bayangan lembut (opsional). */
+@Composable
+fun AlbumCover(
+    art: ImageBitmap?,
+    rounded: Boolean,
+    shadow: Boolean,
+    placeholderText: String,
+    modifier: Modifier = Modifier,
+) {
+    val shape = if (rounded) RoundedCornerShape(6) else RectangleShape
+    Box(
+        modifier
+            .then(if (shadow) Modifier.shadow(28.dp, shape, ambientColor = Color.Black, spotColor = Color.Black) else Modifier)
+            .clip(shape)
+            .background(Color(0xFF26262A))
+    ) {
+        Crossfade(targetState = art, animationSpec = tween(600), label = "cover") { img ->
+            if (img != null) {
+                Image(img, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            } else {
+                NeutralSleeve(placeholderText)
+            }
+        }
+    }
+}
+
+/** Sampul netral saat tidak ada musik: kertas gelap dengan ikon dan teks. */
+@Composable
+private fun NeutralSleeve(text: String) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(
+                androidx.compose.ui.graphics.Brush.linearGradient(
+                    listOf(Color(0xFF2C2C31), Color(0xFF1C1C20))
+                )
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Icon(Icons.Rounded.MusicNote, null, tint = Color.White.copy(alpha = 0.35f), modifier = Modifier.size(56.dp))
+            Text(
+                text,
+                color = Color.White.copy(alpha = 0.55f),
+                fontSize = 16.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+        }
+    }
+}
+
+fun formatMs(ms: Long): String {
+    val totalSec = (ms / 1000).coerceAtLeast(0)
+    return "%d:%02d".format(totalSec / 60, totalSec % 60)
+}

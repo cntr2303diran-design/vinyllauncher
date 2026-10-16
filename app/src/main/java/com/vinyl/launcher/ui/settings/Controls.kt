@@ -1,0 +1,445 @@
+package com.vinyl.launcher.ui.settings
+
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.vinyl.launcher.data.AppInfo
+import com.vinyl.launcher.data.Anchor
+import com.vinyl.launcher.data.BackgroundSettings
+import com.vinyl.launcher.data.BackgroundType
+import com.vinyl.launcher.data.ClockSettings
+import com.vinyl.launcher.data.ClockType
+import com.vinyl.launcher.data.CoverElement
+import com.vinyl.launcher.data.CoverSettings
+import com.vinyl.launcher.data.FontChoice
+import com.vinyl.launcher.data.GestureAction
+import com.vinyl.launcher.data.GestureBinding
+import com.vinyl.launcher.data.GestureSettings
+import com.vinyl.launcher.data.HomeSettings
+import com.vinyl.launcher.data.SettingsRepository
+import com.vinyl.launcher.data.TonearmStyle
+import com.vinyl.launcher.data.TurntablePosition
+import com.vinyl.launcher.data.VinylStyle
+import com.vinyl.launcher.data.WidgetConfig
+import com.vinyl.launcher.data.WidgetType
+import com.vinyl.launcher.ui.theme.label
+import com.vinyl.launcher.ui.theme.toColor
+import com.vinyl.launcher.ui.theme.toLongArgb
+import kotlinx.coroutines.launch
+
+/*
+ * Kontrol pengaturan yang dipakai bersama oleh editor (pratinjau langsung)
+ * dan halaman Pengaturan. Semua kontrol bersifat "stateless": menerima nilai
+ * dan mengembalikan nilai baru lewat callback.
+ */
+
+@Composable
+fun SectionTitle(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text.uppercase(),
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.primary,
+        letterSpacing = 1.5.sp,
+        modifier = modifier.padding(top = 18.dp, bottom = 8.dp),
+    )
+}
+
+@Composable
+fun ControlLabel(text: String) {
+    Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun <T> ChipRow(label: String?, options: List<T>, selected: T, text: (T) -> String, onSelect: (T) -> Unit) {
+    Column {
+        if (label != null) ControlLabel(label)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            options.forEach { o ->
+                FilterChip(selected = o == selected, onClick = { onSelect(o) }, label = { Text(text(o)) })
+            }
+        }
+    }
+}
+
+@Composable
+fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit, subtitle: String? = null) {
+    Row(
+        Modifier.fillMaxWidth().clickable { onChange(!checked) }.padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+            if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(checked = checked, onCheckedChange = onChange)
+    }
+}
+
+@Composable
+fun SliderRow(label: String, value: Float, range: ClosedFloatingPointRange<Float>, onChange: (Float) -> Unit, valueText: (Float) -> String = { "%.0f%%".format(it * 100) }) {
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            ControlLabel(label)
+            Spacer(Modifier.weight(1f))
+            Text(valueText(value), style = MaterialTheme.typography.bodySmall)
+        }
+        Slider(value = value, onValueChange = onChange, valueRange = range)
+    }
+}
+
+private val SWATCHES = listOf(
+    0xFFF2EFEA, 0xFFFFFFFF, 0xFF9B9893, 0xFF1B1B1F, 0xFF0E0E10, 0xFFE07A3F, 0xFFE5534B,
+    0xFFF2C14E, 0xFF7BD389, 0xFF4FB3BF, 0xFF5B7FDE, 0xFF9C6ADE, 0xFFE38FB4, 0xFF2B1E3A,
+)
+
+/** Pemilih warna: palet cepat + dialog HSV untuk warna kustom. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ColorRow(label: String, color: Long, onChange: (Long) -> Unit) {
+    var custom by remember { mutableStateOf(false) }
+    Column {
+        ControlLabel(label)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            SWATCHES.forEach { sw ->
+                Box(
+                    Modifier.size(30.dp).clip(CircleShape).background(sw.toColor())
+                        .border(if (sw == color) 2.dp else 1.dp, if (sw == color) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.2f), CircleShape)
+                        .clickable { onChange(sw) },
+                    contentAlignment = Alignment.Center,
+                ) { if (sw == color) Icon(Icons.Rounded.Check, null, Modifier.size(16.dp), tint = if (sw > 0xFF808080) Color.Black else Color.White) }
+            }
+            Box(
+                Modifier.size(30.dp).clip(CircleShape)
+                    .background(Brush.sweepGradient(listOf(Color.Red, Color.Yellow, Color.Green, Color.Cyan, Color.Blue, Color.Magenta, Color.Red)))
+                    .clickable { custom = true },
+                contentAlignment = Alignment.Center,
+            ) { Icon(Icons.Rounded.Add, "Warna kustom", Modifier.size(16.dp), tint = Color.White) }
+        }
+    }
+    if (custom) HsvDialog(color, onDismiss = { custom = false }, onPick = { onChange(it); custom = false })
+}
+
+@Composable
+private fun HsvDialog(initial: Long, onDismiss: () -> Unit, onPick: (Long) -> Unit) {
+    val hsv = remember { FloatArray(3).also { android.graphics.Color.colorToHSV(initial.toInt(), it) } }
+    var h by remember { mutableFloatStateOf(hsv[0]) }
+    var s by remember { mutableFloatStateOf(hsv[1]) }
+    var v by remember { mutableFloatStateOf(hsv[2]) }
+    val current = Color.hsv(h, s, v)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { TextButton(onClick = { onPick(current.toLongArgb()) }) { Text("Pakai") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Batal") } },
+        title = { Text("Warna kustom") },
+        text = {
+            Column {
+                Box(Modifier.fillMaxWidth().height(48.dp).clip(RoundedCornerShape(12.dp)).background(current))
+                SliderRow("Rona", h / 360f, 0f..1f, { h = it * 360f }) { "${(it * 360).toInt()}°" }
+                SliderRow("Saturasi", s, 0f..1f, { s = it })
+                SliderRow("Kecerahan", v, 0f..1f, { v = it })
+            }
+        },
+    )
+}
+
+/** Pemilih posisi 3x3. */
+@Composable
+fun AnchorPicker(label: String, selected: Anchor, onSelect: (Anchor) -> Unit) {
+    Column {
+        ControlLabel(label)
+        Column(
+            Modifier.clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceVariant).padding(4.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Anchor.entries.chunked(3).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    row.forEach { a ->
+                        Box(
+                            Modifier.size(width = 34.dp, height = 24.dp).clip(RoundedCornerShape(6.dp))
+                                .background(if (a == selected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.06f))
+                                .clickable { onSelect(a) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+fun ClockType.label() = when (this) {
+    ClockType.THIN -> "Digital tipis"
+    ClockType.BOLD -> "Digital tebal"
+    ClockType.FLIP -> "Flip clock"
+    ClockType.ANALOG -> "Analog"
+    ClockType.CIRCULAR -> "Melingkar"
+}
+
+/** Kontrol gaya jam (dipakai di home & layar kunci). */
+@Composable
+fun ClockControls(
+    clock: ClockSettings,
+    onChange: (ClockSettings) -> Unit,
+    allowHide: Boolean = true,
+    showAnchor: Boolean = true,
+    showDateToggle: Boolean = true,
+) {
+    if (allowHide) SwitchRow("Tampilkan jam", clock.visible, { onChange(clock.copy(visible = it)) })
+    ChipRow("Gaya jam", ClockType.entries, clock.type, { it.label() }) { onChange(clock.copy(type = it)) }
+    ChipRow("Font", FontChoice.entries, clock.font, { it.label() }) { onChange(clock.copy(font = it)) }
+    ColorRow("Warna", clock.color) { onChange(clock.copy(color = it)) }
+    SliderRow("Ukuran", clock.scale, 0.3f..2f, { onChange(clock.copy(scale = it)) })
+    SwitchRow("Format 24 jam", clock.use24h, { onChange(clock.copy(use24h = it)) })
+    if (showDateToggle) SwitchRow("Tampilkan tanggal di bawah jam", clock.showDate, { onChange(clock.copy(showDate = it)) })
+    if (showAnchor) AnchorPicker("Posisi", clock.anchor) { onChange(clock.copy(anchor = it)) }
+}
+
+/** Mengembalikan fungsi untuk membuka Photo Picker; gambar disalin ke penyimpanan internal. */
+@Composable
+fun rememberImagePicker(name: String, onPicked: (String) -> Unit): () -> Unit {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) scope.launch {
+            SettingsRepository.get(context).importImage(uri, name)?.let(onPicked)
+        }
+    }
+    return { launcher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+}
+
+fun BackgroundType.label() = when (this) {
+    BackgroundType.ALBUM -> "Warna cover album"
+    BackgroundType.SOLID -> "Warna solid"
+    BackgroundType.GRADIENT -> "Gradasi"
+    BackgroundType.IMAGE -> "Gambar galeri"
+}
+
+@Composable
+fun BackgroundControls(bg: BackgroundSettings, allowGradient: Boolean, pickerName: String, onChange: (BackgroundSettings) -> Unit) {
+    val pick = rememberImagePicker(pickerName) { onChange(bg.copy(type = BackgroundType.IMAGE, imagePath = it)) }
+    val types = BackgroundType.entries.filter { allowGradient || it != BackgroundType.GRADIENT }
+    ChipRow("Latar", types, bg.type, { it.label() }) {
+        if (it == BackgroundType.IMAGE && bg.imagePath == null) pick() else onChange(bg.copy(type = it))
+    }
+    when (bg.type) {
+        BackgroundType.SOLID -> ColorRow("Warna latar", bg.solidColor) { onChange(bg.copy(solidColor = it)) }
+        BackgroundType.GRADIENT -> {
+            ColorRow("Warna awal", bg.gradientStart) { onChange(bg.copy(gradientStart = it)) }
+            ColorRow("Warna akhir", bg.gradientEnd) { onChange(bg.copy(gradientEnd = it)) }
+        }
+        BackgroundType.IMAGE -> OutlinedButton(onClick = pick, modifier = Modifier.padding(top = 6.dp)) { Text("Pilih gambar lain…") }
+        BackgroundType.ALBUM -> Unit
+    }
+}
+
+fun VinylStyle.label() = when (this) {
+    VinylStyle.CLASSIC -> "Klasik hitam"
+    VinylStyle.COLORED -> "Berwarna"
+    VinylStyle.TRANSPARENT -> "Transparan"
+    VinylStyle.PICTURE_DISC -> "Picture disc"
+}
+
+fun TonearmStyle.label() = when (this) {
+    TonearmStyle.SILVER -> "Perak"
+    TonearmStyle.BLACK -> "Hitam"
+    TonearmStyle.GOLD -> "Emas"
+}
+
+fun TurntablePosition.label() = when (this) {
+    TurntablePosition.LEFT -> "Kiri"
+    TurntablePosition.CENTER -> "Tengah"
+    TurntablePosition.RIGHT -> "Kanan"
+}
+
+fun WidgetType.label() = when (this) {
+    WidgetType.CALENDAR -> "Kalender mini"
+    WidgetType.WEATHER -> "Cuaca"
+    WidgetType.BATTERY -> "Baterai"
+}
+
+/** Semua kontrol gaya home screen, dikelompokkan per bagian. */
+@Composable
+fun HomeStyleControls(home: HomeSettings, onChange: (HomeSettings) -> Unit) {
+    SectionTitle("Latar")
+    BackgroundControls(home.background, allowGradient = true, pickerName = "home") { onChange(home.copy(background = it)) }
+
+    SectionTitle("Turntable")
+    SliderRow("Ukuran", home.turntableSize, 0.5f..1f, { onChange(home.copy(turntableSize = it)) })
+    ChipRow("Posisi", TurntablePosition.entries, home.turntablePosition, { it.label() }) { onChange(home.copy(turntablePosition = it)) }
+    ChipRow("Gaya vinyl", VinylStyle.entries, home.vinylStyle, { it.label() }) { onChange(home.copy(vinylStyle = it)) }
+    ChipRow("Gaya tonearm", TonearmStyle.entries, home.tonearmStyle, { it.label() }) { onChange(home.copy(tonearmStyle = it)) }
+    ChipRow("Kecepatan", listOf(33, 45), home.rpm, { "$it RPM" }) { onChange(home.copy(rpm = it)) }
+
+    SectionTitle("Sampul album")
+    SwitchRow("Tampilkan sampul", home.coverVisible, { onChange(home.copy(coverVisible = it)) })
+    SwitchRow("Sudut membulat", home.coverRounded, { onChange(home.copy(coverRounded = it)) })
+    SwitchRow("Bayangan", home.coverShadow, { onChange(home.copy(coverShadow = it)) })
+
+    SectionTitle("Jam & tanggal")
+    ClockControls(home.clock, { onChange(home.copy(clock = it)) })
+
+    SectionTitle("Widget tambahan")
+    WidgetControls(home.widgets) { onChange(home.copy(widgets = it)) }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun WidgetControls(widgets: List<WidgetConfig>, onChange: (List<WidgetConfig>) -> Unit) {
+    Text(
+        "Di mode edit home screen: seret widget untuk memindahkan, seret titik sudut untuk mengubah ukuran.",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
+        WidgetType.entries.forEach { t ->
+            OutlinedButton(onClick = {
+                val n = widgets.size
+                onChange(widgets + WidgetConfig(System.currentTimeMillis(), t, x = 0.7f, y = (0.12f + 0.18f * n) % 0.8f))
+            }) { Icon(Icons.Rounded.Add, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text(t.label()) }
+        }
+    }
+    widgets.forEach { w ->
+        Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(w.type.label(), Modifier.weight(1f))
+            TextButton(onClick = { onChange(widgets.filterNot { it.id == w.id }) }) { Text("Hapus") }
+        }
+    }
+}
+
+/** Kontrol layar kunci (cover screen). */
+@Composable
+fun CoverStyleControls(cover: CoverSettings, onChange: (CoverSettings) -> Unit, onRequestCalendarPermission: () -> Unit) {
+    SectionTitle("Jam")
+    ClockControls(cover.clock, { onChange(cover.copy(clock = it)) }, showDateToggle = false)
+
+    SectionTitle("Elemen layar kunci")
+    ElementControls("Tanggal", cover.date) { onChange(cover.copy(date = it)) }
+    ElementControls("Kalender dua bulan", cover.calendar) { onChange(cover.copy(calendar = it)) }
+    if (cover.calendar.visible) SwitchRow(
+        "Titik acara dari kalender perangkat",
+        cover.calendarEvents,
+        { on -> if (on) onRequestCalendarPermission(); onChange(cover.copy(calendarEvents = on)) },
+        subtitle = "Memerlukan izin kalender",
+    )
+    ElementControls("Info lagu", cover.songInfo) { onChange(cover.copy(songInfo = it)) }
+    ElementControls("Baterai", cover.battery) { onChange(cover.copy(battery = it)) }
+
+    SectionTitle("Latar")
+    BackgroundControls(cover.background, allowGradient = false, pickerName = "cover") { onChange(cover.copy(background = it)) }
+}
+
+@Composable
+private fun ElementControls(label: String, el: CoverElement, onChange: (CoverElement) -> Unit) {
+    SwitchRow(label, el.visible, { onChange(el.copy(visible = it)) })
+    if (el.visible) AnchorPicker("Posisi $label".lowercase().replaceFirstChar { it.uppercase() }, el.anchor) { onChange(el.copy(anchor = it)) }
+}
+
+fun GestureAction.label() = when (this) {
+    GestureAction.NONE -> "Tidak ada"
+    GestureAction.APP_DRAWER -> "App drawer"
+    GestureAction.NOTIFICATIONS -> "Notifikasi"
+    GestureAction.LOCK_SCREEN -> "Kunci layar"
+    GestureAction.OPEN_APP -> "Buka aplikasi"
+    GestureAction.SETTINGS -> "Pengaturan"
+}
+
+@Composable
+fun GestureControls(gestures: GestureSettings, apps: List<AppInfo>, onChange: (GestureSettings) -> Unit) {
+    GestureRow("Swipe ke atas", gestures.swipeUp, apps) { onChange(gestures.copy(swipeUp = it)) }
+    GestureRow("Swipe ke bawah", gestures.swipeDown, apps) { onChange(gestures.copy(swipeDown = it)) }
+    GestureRow("Ketuk dua kali", gestures.doubleTap, apps) { onChange(gestures.copy(doubleTap = it)) }
+}
+
+@Composable
+private fun GestureRow(label: String, binding: GestureBinding, apps: List<AppInfo>, onChange: (GestureBinding) -> Unit) {
+    var picking by remember { mutableStateOf(false) }
+    ChipRow(label, GestureAction.entries, binding.action, { a ->
+        if (a == GestureAction.OPEN_APP && binding.action == a)
+            "Buka: " + (apps.firstOrNull { it.packageName == binding.packageName }?.label ?: "?")
+        else a.label()
+    }) { a ->
+        if (a == GestureAction.OPEN_APP) picking = true else onChange(GestureBinding(a))
+    }
+    if (picking) AppPickerDialog(apps, title = "Pilih aplikasi", onDismiss = { picking = false }) {
+        onChange(GestureBinding(GestureAction.OPEN_APP, it.packageName)); picking = false
+    }
+}
+
+/** Dialog daftar aplikasi dengan pencarian. */
+@Composable
+fun AppPickerDialog(apps: List<AppInfo>, title: String, onDismiss: () -> Unit, onPick: (AppInfo) -> Unit) {
+    var query by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Tutup") } },
+        title = { Text(title) },
+        text = {
+            Column {
+                OutlinedTextField(query, { query = it }, placeholder = { Text("Cari") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                LazyColumn(Modifier.heightIn(max = 380.dp).padding(top = 8.dp)) {
+                    items(apps.filter { it.label.contains(query, ignoreCase = true) }, key = { it.key }) { app ->
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { onPick(app) }.padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Image(app.icon, null, Modifier.size(36.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Text(app.label, fontWeight = FontWeight.Medium)
+                        }
+                    }
+                }
+            }
+        },
+    )
+}
