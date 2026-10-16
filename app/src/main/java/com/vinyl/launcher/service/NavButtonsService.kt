@@ -40,6 +40,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 /**
  * Tombol navigasi Vinyl: tiga tombol (Back, Home, Recents) melayang di atas semua aplikasi,
@@ -62,7 +64,7 @@ class NavButtonsService : Service() {
             when (intent.action) {
                 Intent.ACTION_SCREEN_OFF -> unlocked.value = false
                 Intent.ACTION_USER_PRESENT -> unlocked.value = true
-                Intent.ACTION_SCREEN_ON -> unlocked.value = getSystemService(KeyguardManager::class.java)?.isKeyguardLocked != true
+                Intent.ACTION_SCREEN_ON -> unlocked.value = unlockedNow()
             }
         }
     }
@@ -90,7 +92,31 @@ class NavButtonsService : Service() {
         }
         scope.launch {
             combine(unlocked, TaskbarState.suppressed) { u, sup -> u && !sup }
-                .collect { show -> view?.visibility = if (show) View.VISIBLE else View.GONE }
+                .collect { show -> setShown(show) }
+        }
+        // Cocokkan status kunci dengan sistem secara berkala (USER_PRESENT kadang tidak datang)
+        scope.launch {
+            while (isActive) {
+                unlocked.value = unlockedNow()
+                delay(1500)
+            }
+        }
+    }
+
+    private fun unlockedNow() =
+        getSystemService(android.os.PowerManager::class.java)?.isInteractive != false &&
+            getSystemService(KeyguardManager::class.java)?.isKeyguardLocked != true
+
+    /** Sembunyikan tanpa GONE (transparan + tidak menerima sentuhan) agar jendela tetap "hidup". */
+    private fun setShown(show: Boolean) {
+        val v = view ?: return
+        val p = params ?: return
+        v.alpha = if (show) 1f else 0f
+        val flags = if (show) p.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+        else p.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        if (flags != p.flags) {
+            p.flags = flags
+            runCatching { wm.updateViewLayout(v, p) }
         }
     }
 

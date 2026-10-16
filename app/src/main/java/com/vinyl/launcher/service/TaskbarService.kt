@@ -86,12 +86,32 @@ class TaskbarService : Service() {
             when (intent.action) {
                 Intent.ACTION_SCREEN_OFF -> screenUnlocked.value = false
                 Intent.ACTION_USER_PRESENT -> screenUnlocked.value = true
-                Intent.ACTION_SCREEN_ON -> screenUnlocked.value = !isLocked()
+                Intent.ACTION_SCREEN_ON -> screenUnlocked.value = unlockedNow()
             }
         }
     }
 
     private fun isLocked() = getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
+
+    /** Layar menyala & tidak terkunci — dicek langsung ke sistem, tidak hanya dari broadcast. */
+    private fun unlockedNow() = getSystemService(android.os.PowerManager::class.java)?.isInteractive != false && !isLocked()
+
+    /**
+     * Tampilkan/sembunyikan TANPA View.GONE: jendela yang GONE berhenti menerima info inset sistem,
+     * sehingga status "layar penuh" bisa macet setelah layar kunci dan taskbar tidak muncul lagi.
+     * Saat disembunyikan, isi dibuat transparan & jendela tidak menerima sentuhan.
+     */
+    private fun setShown(show: Boolean) {
+        val v = view ?: return
+        val p = layoutParams ?: return
+        v.alpha = if (show) 1f else 0f
+        val flags = if (show) p.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+        else p.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        if (flags != p.flags) {
+            p.flags = flags
+            runCatching { wm.updateViewLayout(v, p) }
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -109,6 +129,14 @@ class TaskbarService : Service() {
         owner.start()
         addOverlay()
 
+        // Cocokkan status kunci dengan sistem secara berkala (broadcast USER_PRESENT kadang tidak datang,
+        // mis. setelah layar kunci vinyl ditutup), supaya taskbar selalu kembali muncul
+        scope.launch {
+            while (isActive) {
+                screenUnlocked.value = unlockedNow()
+                delay(1500)
+            }
+        }
         // Perbarui daftar aplikasi terakhir secara berkala selama taskbar tampil
         scope.launch {
             while (isActive) {
@@ -137,7 +165,7 @@ class TaskbarService : Service() {
             ) { unlocked, barsVisible, suppressed, s ->
                 unlocked && !suppressed && (barsVisible || !s.dock.hideInFullscreen)
             }.collect { show ->
-                view?.visibility = if (show) View.VISIBLE else View.GONE
+                setShown(show)
                 if (!show) TaskbarState.setAppPanel(false)
             }
         }

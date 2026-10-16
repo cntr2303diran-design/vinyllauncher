@@ -53,6 +53,12 @@ class CoverActivity : ComponentActivity() {
         }
     }
 
+    override fun onDestroy() {
+        // Pastikan taskbar tidak tertahan tersembunyi bila activity ditutup sistem
+        TaskbarState.setSuppressed(false)
+        super.onDestroy()
+    }
+
     override fun onPause() {
         super.onPause()
         TaskbarState.setSuppressed(false)
