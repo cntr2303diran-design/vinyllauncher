@@ -181,8 +181,9 @@ fun HomeScreen(vm: HomeViewModel) {
                     // Satu detektor goresan untuk semua gestur: gestur gambar buatan sendiri diperiksa
                     // lebih dulu; bila tidak ada yang cocok → swipe atas/bawah/kiri bawaan.
                     awaitEachGesture {
+                        // Ketukan pada widget tidak membatalkan swipe; yang membatalkan hanya elemen yang ikut
+                        // memakai gerakan jari (mis. turntable saat vinyl/tonearm diseret)
                         val down = awaitFirstDown(requireUnconsumed = false)
-                        if (down.isConsumed) return@awaitEachGesture   // sudah dipakai elemen di atasnya (mis. turntable)
                         val path = mutableListOf(down.position)
                         var moved = false
                         var takenByChild = false

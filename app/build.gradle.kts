@@ -15,8 +15,10 @@ android {
         applicationId = "com.vinyl.launcher"
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+        // Nomor build CI dipakai sebagai versionCode agar setiap rilis bisa dipasang sebagai pembaruan
+        val run = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+        versionCode = 100 + run
+        versionName = "1.0.$run"
     }
 
     // Kunci tanda tangan TETAP (disimpan di repo). Tanpa ini, setiap build di GitHub Actions

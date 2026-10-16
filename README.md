@@ -2,18 +2,21 @@
 
 Launcher Android untuk tablet dengan konsep **"tablet sebagai turntable"** — Kotlin + Jetpack Compose, minSdk 29, targetSdk 36. Dioptimalkan untuk landscape; portrait tetap didukung dengan tata letak yang menyesuaikan.
 
-## Fitur
+## Fitur (versi 1.0)
 
 | Bagian | Isi |
 |---|---|
-| Home screen | Latar warna dominan cover (Palette API) dengan transisi halus, turntable Canvas (sampul, vinyl beralur & berkilap, tonearm), jam kecil di kiri atas, tanpa ikon aplikasi |
+| Layar utama | Latar ambient dari warna cover, turntable Canvas (sampul, vinyl beralur & berkilap, tonearm), jam & widget yang bisa diatur, info lagu + lirik tersinkron (LRCLIB) |
 | Animasi | Play: vinyl meluncur keluar → tonearm turun → berputar 33/45 RPM. Pause: tonearm naik → melambat → masuk sebagian ke sampul |
-| Interaksi | Ketuk sampul = play/pause · geser sampul = next/previous · seret tonearm = seek · putar vinyl dengan jari = maju/mundur |
-| Layar kunci vinyl | Tampil di atas keyguard sistem, vinyl berlabel cover, jam & tanggal besar, kalender dua bulan (opsional titik acara), geser kanan → PIN sistem, tekan lama → verifikasi PIN → editor |
-| Kustomisasi | Tekan lama area kosong: latar (cover/solid/gradasi/galeri), ukuran & posisi turntable, gaya vinyl & tonearm, sampul, RPM, jam (5 gaya, font, warna, ukuran, posisi, 12/24 jam), widget kalender/cuaca/baterai yang bisa diseret & diubah ukuran, gestur, preset tema |
-| Musik | NotificationListenerService + MediaSessionManager; memprioritaskan sesi yang sedang memutar; aplikasi musik default |
-| App drawer | Swipe ke atas, grid abjad, pencarian; tekan lama: info, uninstall, tambah ke dock, sembunyikan |
-| Dock | Default memakai taskbar sistem (konten diberi ruang aman lewat WindowInsets). Opsional: dock vinyl mini 6–8 aplikasi |
+| Interaksi turntable | Ketuk sampul = putar/jeda · geser sampul = lagu berikut/sebelumnya · seret tonearm = seek · angkat tonearm dari piringan = jeda · putar vinyl dengan jari = maju/mundur |
+| Suara & getar | Bunyi jarum, klik saat vinyl diputar, kibasan ganti lagu, kresek vinyl opsional; volume & kekuatan getar bisa diatur |
+| Rak piringan | Geser ke kiri di layar utama: cover-flow di atas papan kayu dengan piringan menyembul, lajur *Baru diputar*, tab **Riwayat** per hari, tab **Koleksi** dengan statistik |
+| Layar kunci vinyl | Tampil di atas keyguard, jam, tanggal, kalender, kartu lagu + lirik; geser untuk membuka, tekan lama untuk editor |
+| Taskbar Vinyl | Bar gaya PC di atas semua aplikasi: Home, panel semua aplikasi, favorit, aplikasi terakhir, kartu lagu, jam/tanggal/baterai; posisi bawah/atas/kiri/kanan; opsi buka aplikasi sebagai jendela |
+| Tombol navigasi Vinyl | Kembali/Home/Terbaru melayang: posisi bebas, jarak antar tombol, ukuran, transparansi, urutan, susun vertikal |
+| Gestur | Swipe atas/bawah & ketuk dua kali, plus **gestur gambar sendiri** (satu goresan) dengan 16 pilihan aksi |
+| Kustomisasi | Tekan lama area kosong: latar, turntable, jam (5 gaya), widget kalender/cuaca/baterai/foto, gestur, preset tema |
+| Pengaturan | Dua panel ala tablet (kategori di kiri, isi di kanan) |
 
 ## Cara build di Android Studio
 
@@ -60,7 +63,8 @@ Setiap perubahan di branch `main` otomatis di-build oleh GitHub Actions. APK ter
 
 ## Keterbatasan yang perlu diketahui
 
-- Beberapa ROM (mis. One UI, HyperOS) menghilangkan taskbar saat launcher pihak ketiga aktif — aktifkan **Dock vinyl mini** di Pengaturan.
+- One UI menonaktifkan taskbar Samsung saat launcher pihak ketiga aktif — gunakan **Taskbar Vinyl** (Pengaturan → Taskbar).
+- Tombol navigasi Vinyl memakai layanan aksesibilitas untuk Kembali & Terbaru. Agar tombol bawaan hilang, ubah navigasi sistem ke *Gestur geser*.
+- "Buka sebagai jendela" hanya berfungsi bila sistem mengizinkan jendela bentuk bebas (Opsi pengembang).
 - Seek (seret tonearm / putar vinyl) hanya aktif bila aplikasi musik mendukung `ACTION_SEEK_TO`.
-- Cover yang hanya dikirim sebagai URL http(s) tidak diunduh; mayoritas aplikasi musik mengirim bitmap langsung di metadata.
-- Proyek ini belum di-build di lingkungan pembuatnya (tanpa akses Android SDK); bila ada error kompilasi kecil saat sync pertama, pesan Gradle akan menunjuk baris yang tepat.
+- Gestur gambar sendiri dikenali di area kosong layar utama (bukan di dalam aplikasi lain).

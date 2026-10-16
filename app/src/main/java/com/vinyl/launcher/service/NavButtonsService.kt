@@ -161,6 +161,12 @@ class NavButtonsService : Service() {
         ServiceCompat.startForeground(this, NOTIF_ID, notif, type)
     }
 
+    /** Layar diputar → ukuran layar berubah, hitung ulang posisi tombol. */
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        reposition(SettingsRepository.get(this).settings.value.nav)
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
 
     override fun onDestroy() {
