@@ -42,11 +42,16 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -91,9 +96,11 @@ import com.vinyl.launcher.util.rememberImage
 import java.util.concurrent.TimeUnit
 
 /**
- * "Rak piringan": lapisan layar penuh dengan dua tab
- * - Berikutnya: antrean lagu dari aplikasi musik, tampil sebagai deretan sampul
- * - Koleksi: riwayat lagu yang pernah diputar + statistik sederhana
+ * "Rak piringan": lapisan layar penuh dengan tiga tab (kontrol segmen ala iOS/macOS)
+ * - Rak: deretan sampul cover-flow di atas papan kayu, piringan hitam menyembul dari sampul,
+ *   plus lajur "Baru diputar" di bawahnya
+ * - Riwayat: daftar lagu yang pernah diputar, dikelompokkan per hari
+ * - Koleksi: statistik & semua lagu yang pernah didengarkan
  */
 @Composable
 fun CrateSheet(
@@ -109,31 +116,53 @@ fun CrateSheet(
         AmbientBackdrop(np.art.takeIf { np.hasTrack }, np.swatches, fallback, animate = false, dim = 0.6f)
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             Row(
-                Modifier.fillMaxWidth().padding(start = 36.dp, end = 20.dp, top = 24.dp),
+                Modifier.fillMaxWidth().padding(start = 36.dp, end = 20.dp, top = 22.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("Rak piringan", style = MaterialTheme.typography.displaySmall, color = TextPrimary, modifier = Modifier.weight(1f))
+                Column(Modifier.weight(1f)) {
+                    Text("Rak piringan", style = MaterialTheme.typography.displaySmall, color = TextPrimary)
+                    Text(
+                        "${history.size} lagu dalam koleksi",
+                        style = MaterialTheme.typography.bodyMedium, color = TextSecondary,
+                    )
+                }
                 Box(
                     Modifier.size(44.dp).clip(CircleShape).glass(CircleShape).clickable(onClick = onClose),
                     contentAlignment = Alignment.Center,
                 ) { Icon(Icons.Rounded.Close, "Tutup", tint = Color.White) }
             }
-            Row(Modifier.padding(start = 32.dp, top = 18.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("Rak", "Koleksi").forEachIndexed { i, t ->
-                    val sel = i == tab
-                    Text(
-                        t,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = if (sel) Color(0xFF111113) else Color.White,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(if (sel) Color.White.copy(alpha = 0.94f) else Color.White.copy(alpha = 0.08f))
-                            .clickable { tab = i }
-                            .padding(horizontal = 20.dp, vertical = 10.dp),
-                    )
-                }
+            Box(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 6.dp), contentAlignment = Alignment.Center) {
+                Segmented(listOf("Rak", "Riwayat", "Koleksi"), tab) { tab = it }
             }
-            if (tab == 0) RecordShelf(np, queue, history) else Collection(history, onClearHistory)
+            when (tab) {
+                0 -> RecordShelf(np, queue, history)
+                1 -> HistoryList(history, onClearHistory)
+                else -> Collection(history, onClearHistory)
+            }
+        }
+    }
+}
+
+/** Kontrol segmen kapsul ala iOS: pil putih bergeser ke tab terpilih. */
+@Composable
+private fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+    Row(
+        Modifier.glass(RoundedCornerShape(50), fillAlpha = 0.10f).padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        options.forEachIndexed { i, t ->
+            val sel = i == selected
+            val bg by animateColorAsState(if (sel) Color.White.copy(alpha = 0.94f) else Color.Transparent, label = "seg")
+            Text(
+                t,
+                style = MaterialTheme.typography.labelLarge,
+                color = if (sel) Color(0xFF111113) else Color.White.copy(alpha = 0.85f),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(bg)
+                    .clickable { onSelect(i) }
+                    .padding(horizontal = 26.dp, vertical = 9.dp),
+            )
         }
     }
 }
@@ -185,28 +214,42 @@ private fun RecordShelf(np: NowPlaying, queue: List<MediaRepository.QueueEntry>,
     LaunchedEffect(startPage, items.size) { pager.animateScrollToPage(startPage) }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val sleeve = minOf(maxHeight * 0.52f, maxWidth * 0.30f, 340.dp)
-        val step = sleeve * 0.62f
+        val showStrip = maxHeight > 560.dp && history.isNotEmpty()
+        val sleeve = minOf(maxHeight * (if (showStrip) 0.40f else 0.50f), maxWidth * 0.28f, 320.dp)
+        val step = sleeve * 0.66f
         val sidePad = (maxWidth - step) / 2
         val focused = items.getOrNull(pager.currentPage)
 
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-            Spacer(Modifier.weight(0.2f))
-            Box(Modifier.fillMaxWidth().height(sleeve + 70.dp)) {
+            Spacer(Modifier.weight(0.15f))
+            Box(Modifier.fillMaxWidth().height(sleeve + 76.dp)) {
                 // Papan kayu (digambar di belakang sampul)
-                Shelf(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(70.dp))
+                Shelf(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(76.dp))
+                // Cahaya lembut di bawah sampul yang sedang dipilih
+                Box(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 54.dp)
+                        .size(width = sleeve * 1.3f, height = 26.dp)
+                        .background(
+                            Brush.radialGradient(listOf(Accent.copy(alpha = 0.30f), Color.Transparent)),
+                            RoundedCornerShape(50),
+                        ),
+                )
                 HorizontalPager(
                     state = pager,
                     pageSize = PageSize.Fixed(step),
                     contentPadding = PaddingValues(horizontal = sidePad),
                     beyondViewportPageCount = 3,
-                    modifier = Modifier.fillMaxWidth().height(sleeve + 30.dp).align(Alignment.TopCenter),
+                    modifier = Modifier.fillMaxWidth().height(sleeve + 36.dp).align(Alignment.TopCenter),
                     verticalAlignment = Alignment.Bottom,
                 ) { page ->
                     val item = items[page]
                     val img = item.art ?: rememberImage(item.bitmap, item.source)
                     val offset = (pager.currentPage - page) + pager.currentPageOffsetFraction
                     val abs = kotlin.math.abs(offset).coerceAtMost(2f)
+                    // Piringan menyembul lebih jauh dari sampul yang sedang di tengah
+                    val peek = 0.10f + 0.20f * (1f - abs.coerceAtMost(1f))
                     Box(
                         Modifier
                             .requiredSize(sleeve)
@@ -224,34 +267,111 @@ private fun RecordShelf(np: NowPlaying, queue: List<MediaRepository.QueueEntry>,
                                 else item.play?.invoke()
                             },
                     ) {
+                        DiscPeek(peek = peek, modifier = Modifier.requiredSize(sleeve))
                         Sleeve(img, null, highlight = item.relation == 0)
                     }
                 }
             }
-            // Info sampul yang sedang di tengah
-            Spacer(Modifier.height(22.dp))
+            // Info sampul yang sedang di tengah (kartu kaca ala iOS)
+            Spacer(Modifier.height(16.dp))
             if (focused != null) {
                 val (label, color) = when {
                     focused.relation == 0 -> "SEDANG DIPUTAR" to Accent
                     focused.relation < 0 -> "SEBELUMNYA" to TextTertiary
                     else -> "BERIKUTNYA" to TextTertiary
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (focused.relation == 0) {
-                        Icon(Icons.Rounded.GraphicEq, null, tint = Accent, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
+                Row(
+                    Modifier.widthIn(max = 560.dp).glass(RoundedCornerShape(26.dp)).padding(horizontal = 22.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (focused.relation == 0) {
+                                Icon(Icons.Rounded.GraphicEq, null, tint = Accent, modifier = Modifier.size(15.dp))
+                                Spacer(Modifier.width(6.dp))
+                            }
+                            Text(label, color = color, style = MaterialTheme.typography.labelMedium)
+                            Text("   ${pager.currentPage + 1} / ${items.size}", color = TextTertiary, style = MaterialTheme.typography.labelMedium)
+                        }
+                        Text(focused.title, style = MaterialTheme.typography.titleLarge, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+                        Text(focused.subtitle, style = MaterialTheme.typography.bodyMedium, color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    Text(label, color = color, style = MaterialTheme.typography.labelMedium)
+                    if (focused.relation != 0 && focused.play != null) {
+                        Spacer(Modifier.width(14.dp))
+                        Row(
+                            Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(Color.White.copy(alpha = 0.94f))
+                                .clickable { focused.play.invoke() }
+                                .padding(horizontal = 18.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Rounded.PlayArrow, null, tint = Color(0xFF111113), modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Putar", color = Color(0xFF111113), style = MaterialTheme.typography.labelLarge)
+                        }
+                    }
                 }
-                Text(focused.title, style = MaterialTheme.typography.headlineSmall, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp, start = 40.dp, end = 40.dp))
-                Text(focused.subtitle, style = MaterialTheme.typography.bodyLarge, color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (focused.relation != 0 && focused.play != null) Text(
-                    "Ketuk sampul untuk memutar",
-                    style = MaterialTheme.typography.bodySmall, color = TextTertiary, modifier = Modifier.padding(top = 8.dp),
-                )
             }
-            Spacer(Modifier.weight(0.3f))
+            // Lajur riwayat: lagu yang baru diputar
+            if (showStrip) {
+                Spacer(Modifier.height(18.dp))
+                Text(
+                    "BARU DIPUTAR",
+                    style = MaterialTheme.typography.labelMedium, color = TextSecondary,
+                    modifier = Modifier.align(Alignment.Start).padding(start = 40.dp, bottom = 8.dp),
+                )
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 36.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    items(history.take(14), key = { it.key }) { r ->
+                        val img = rememberImage(null, r.artFile)
+                        Column(
+                            Modifier.width(92.dp).clickable { playFromSearch(context, r) },
+                        ) {
+                            Box(Modifier.size(92.dp)) {
+                                DiscPeek(peek = 0.12f, modifier = Modifier.size(92.dp))
+                                Sleeve(img, 92.dp, highlight = false)
+                            }
+                            Text(r.title, style = MaterialTheme.typography.labelMedium, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.weight(0.25f))
         }
+    }
+}
+
+/** Piringan hitam yang menyembul dari sisi kanan sampul (digambar di belakang sampul). */
+@Composable
+private fun DiscPeek(peek: Float, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val d = size.minDimension * 0.96f
+        val r = d / 2f
+        val c = Offset(size.width / 2f + size.width * peek, size.height / 2f)
+        drawCircle(Color(0xFF0B0B0D), r, c)
+        // alur
+        var rr = r * 0.34f
+        while (rr < r * 0.97f) {
+            drawCircle(Color.White.copy(alpha = 0.045f), rr, c, style = Stroke(width = 1f))
+            rr += r * 0.045f
+        }
+        // kilau
+        drawCircle(
+            Brush.sweepGradient(
+                listOf(Color.Transparent, Color.White.copy(alpha = 0.10f), Color.Transparent, Color.White.copy(alpha = 0.08f), Color.Transparent),
+                center = c,
+            ),
+            r, c,
+        )
+        // label & lubang tengah
+        drawCircle(Accent, r * 0.30f, c)
+        drawCircle(Color.Black.copy(alpha = 0.25f), r * 0.30f, c, style = Stroke(width = 2f))
+        drawCircle(Color(0xFF0B0B0D), r * 0.04f, c)
+        drawCircle(Color.White.copy(alpha = 0.12f), r, c, style = Stroke(width = 1.2f))
     }
 }
 
@@ -417,6 +537,96 @@ private fun EmptyState(title: String, body: String) {
             Text(body, style = MaterialTheme.typography.bodyLarge, color = TextSecondary, modifier = Modifier.padding(top = 8.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
         }
     }
+}
+
+// ======================= Riwayat =======================
+
+private data class HistoryEntry(val record: PlayRecord, val at: Long)
+
+private fun dayLabel(at: Long): String {
+    val zone = java.time.ZoneId.systemDefault()
+    val d = java.time.Instant.ofEpochMilli(at).atZone(zone).toLocalDate()
+    val today = java.time.LocalDate.now(zone)
+    return when (d) {
+        today -> "Hari ini"
+        today.minusDays(1) -> "Kemarin"
+        else -> java.time.format.DateTimeFormatter.ofPattern("EEEE, d MMMM", java.util.Locale.forLanguageTag("id-ID")).format(d)
+    }
+}
+
+private fun clockLabel(at: Long): String =
+    java.time.format.DateTimeFormatter.ofPattern("HH:mm").format(
+        java.time.Instant.ofEpochMilli(at).atZone(java.time.ZoneId.systemDefault()),
+    )
+
+/** Riwayat lagu yang diputar, terbaru di atas, dikelompokkan per hari (gaya daftar iOS/One UI). */
+@Composable
+private fun HistoryList(history: List<PlayRecord>, onClear: () -> Unit) {
+    val context = LocalContext.current
+    var confirmClear by remember { mutableStateOf(false) }
+    val entries = remember(history) {
+        history.flatMap { r ->
+            val times = r.playTimes.ifEmpty { listOf(r.lastPlayed) }
+            times.map { HistoryEntry(r, it) }
+        }.sortedByDescending { it.at }.take(300)
+    }
+    if (entries.isEmpty()) {
+        EmptyState("Belum ada riwayat", "Lagu yang Anda dengarkan lebih dari 30 detik akan tercatat di sini.")
+        return
+    }
+    val groups = remember(entries) { entries.groupBy { dayLabel(it.at) } }
+
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        LazyColumn(
+            modifier = Modifier.widthIn(max = 760.dp).fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 28.dp, vertical = 12.dp),
+        ) {
+            groups.forEach { (label, list) ->
+                item(key = "h_$label") {
+                    Row(Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 8.dp, start = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(label.uppercase(), style = MaterialTheme.typography.labelMedium, color = TextSecondary, modifier = Modifier.weight(1f))
+                        if (label == groups.keys.first()) TextButton(onClick = { confirmClear = true }) { Text("Hapus riwayat", color = TextSecondary) }
+                    }
+                }
+                item(key = "g_$label") {
+                    Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(22.dp))) {
+                        list.forEachIndexed { i, e ->
+                            val img = rememberImage(null, e.record.artFile)
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable { playFromSearch(context, e.record) }
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Box(Modifier.size(58.dp)) {
+                                    DiscPeek(peek = 0.13f, modifier = Modifier.size(58.dp))
+                                    Sleeve(img, 58.dp, highlight = false)
+                                }
+                                Spacer(Modifier.width(18.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(e.record.title, style = MaterialTheme.typography.titleSmall, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(e.record.artist, style = MaterialTheme.typography.bodySmall, color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                                Text(clockLabel(e.at), style = MaterialTheme.typography.labelMedium, color = TextTertiary)
+                                Spacer(Modifier.width(12.dp))
+                                Icon(Icons.Rounded.PlayArrow, "Putar ulang", tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(24.dp))
+                            }
+                            if (i < list.lastIndex) Box(Modifier.padding(start = 90.dp).fillMaxWidth().height(0.6.dp).background(Color.White.copy(alpha = 0.08f)))
+                        }
+                    }
+                }
+            }
+            item { Spacer(Modifier.height(24.dp)) }
+        }
+    }
+    if (confirmClear) AlertDialog(
+        onDismissRequest = { confirmClear = false },
+        title = { Text("Hapus semua riwayat?") },
+        text = { Text("Riwayat, koleksi dan statistik akan dikosongkan.") },
+        confirmButton = { TextButton(onClick = { onClear(); confirmClear = false }) { Text("Hapus") } },
+        dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Batal") } },
+    )
 }
 
 /** Putar ulang lagu dari koleksi lewat intent standar "putar dari pencarian" (didukung Spotify, YouTube Music, dll.). */
