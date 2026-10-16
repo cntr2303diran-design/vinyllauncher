@@ -1,3 +1,5 @@
+import java.net.URI
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -59,7 +61,7 @@ val fetchFonts by tasks.registering {
             val target = File(fontDir, name)
             if (!target.exists() || target.length() < 10_000) {
                 println("Mengunduh font $name")
-                java.net.URI(url).toURL().openStream().use { input ->
+                URI(url).toURL().openStream().use { input ->
                     target.outputStream().use { input.copyTo(it) }
                 }
             }
