@@ -19,7 +19,21 @@ android {
         versionName = "1.0.0"
     }
 
+    // Kunci tanda tangan TETAP (disimpan di repo). Tanpa ini, setiap build di GitHub Actions
+    // memakai kunci debug acak → Android menolak pembaruan ("Aplikasi tidak terinstal").
+    signingConfigs {
+        create("vinyl") {
+            storeFile = file("vinyl.keystore")
+            storePassword = "vinyl-launcher"
+            keyAlias = "vinyl"
+            keyPassword = "vinyl-launcher"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("vinyl")
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -27,9 +41,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // Untuk uji coba, rilis ditandatangani dengan kunci debug.
-            // Ganti dengan signingConfig Anda sendiri sebelum distribusi.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("vinyl")
         }
     }
 
