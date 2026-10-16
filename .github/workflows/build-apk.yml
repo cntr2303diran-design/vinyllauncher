@@ -1,27 +1,61 @@
 # Build APK otomatis di server GitHub (tanpa laptop).
-# Setiap push ke repo, APK debug bisa diunduh dari tab Actions → run terbaru → Artifacts.
+# Setelah selesai, APK bisa diunduh dari tab Actions → run terbaru → Artifacts,
+# atau dari halaman Releases (tag "latest").
 name: Build APK
 
 on:
   push:
+    branches: [main]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
-      - uses: android-actions/setup-android@v3
-      - uses: gradle/actions/setup-gradle@v4
+
+      # Runner GitHub sudah berisi Android SDK; pastikan platform 36 & build-tools tersedia
+      - name: Siapkan Android SDK
+        run: |
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" "platforms;android-36" "build-tools;36.0.0" > /dev/null
+
       - name: Build debug APK
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace
+          set -o pipefail
+          ./gradlew assembleDebug --stacktrace --no-daemon 2>&1 | tee build.log
+
+      # Jika gagal: simpan log ke branch "build-log" agar mudah dibaca
+      - name: Simpan log error
+        if: failure()
+        run: |
+          mkdir -p /tmp/log && cp build.log /tmp/log/build.log || echo "build.log tidak ada" > /tmp/log/build.log
+          cd /tmp/log
+          git init -q && git checkout -q -b build-log
+          git add build.log
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -q -m "log ${GITHUB_SHA}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" build-log
+
       - uses: actions/upload-artifact@v4
         with:
           name: VinylLauncher-apk
           path: app/build/outputs/apk/debug/*.apk
+
+      # APK juga dipasang di halaman Releases supaya bisa diunduh langsung dari tablet tanpa login
+      - name: Terbitkan rilis "latest"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk VinylLauncher.apk
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest VinylLauncher.apk --title "Vinyl Launcher (build terbaru)" --notes "APK debug otomatis dari commit ${GITHUB_SHA::7}."
