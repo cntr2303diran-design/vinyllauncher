@@ -357,6 +357,22 @@ fun WidgetType.label() = when (this) {
     WidgetType.CALENDAR -> "Kalender mini"
     WidgetType.WEATHER -> "Cuaca"
     WidgetType.BATTERY -> "Baterai"
+    WidgetType.PHOTO -> "Foto"
+}
+
+/** Pemilih beberapa foto sekaligus; foto disalin ke penyimpanan internal. */
+@Composable
+fun rememberMultiImagePicker(onPicked: (List<String>) -> Unit): () -> Unit {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(12)) { uris ->
+        if (uris.isNotEmpty()) scope.launch {
+            val repo = SettingsRepository.get(context)
+            val paths = uris.mapIndexedNotNull { i, u -> repo.importImage(u, "photo$i") }
+            if (paths.isNotEmpty()) onPicked(paths)
+        }
+    }
+    return { launcher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
 }
 
 /** Bagian editor home screen (dipakai sebagai tab di panel edit). */
@@ -416,21 +432,43 @@ fun HomeStyleControls(home: HomeSettings, onChange: (HomeSettings) -> Unit) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun WidgetControls(widgets: List<WidgetConfig>, onChange: (List<WidgetConfig>) -> Unit) {
+    var replacingId by remember { mutableStateOf<Long?>(null) }
+    val pickNew = rememberMultiImagePicker { paths ->
+        onChange(widgets + WidgetConfig(System.currentTimeMillis(), WidgetType.PHOTO, x = 0.68f, y = 0.12f, images = paths))
+    }
+    val pickReplace = rememberMultiImagePicker { paths ->
+        val id = replacingId
+        onChange(widgets.map { if (it.id == id) it.copy(images = paths) else it })
+        replacingId = null
+    }
     Text(
-        "Di mode edit home screen: seret widget untuk memindahkan, seret titik sudut untuk mengubah ukuran.",
+        "Di mode edit layar utama: seret widget untuk memindahkan, seret titik putih di sudut untuk mengubah ukuran.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 8.dp),
     )
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 10.dp)) {
         WidgetType.entries.forEach { t ->
-            OutlinedButton(onClick = {
-                val n = widgets.size
-                onChange(widgets + WidgetConfig(System.currentTimeMillis(), t, x = 0.7f, y = (0.12f + 0.18f * n) % 0.8f))
-            }) { Icon(Icons.Rounded.Add, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text(t.label()) }
+            Text(
+                "+ " + t.label(),
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(Color.White.copy(alpha = 0.08f))
+                    .clickable {
+                        if (t == WidgetType.PHOTO) pickNew()
+                        else onChange(widgets + WidgetConfig(System.currentTimeMillis(), t, x = 0.7f, y = (0.12f + 0.18f * widgets.size) % 0.8f))
+                    }
+                    .padding(horizontal = 16.dp, vertical = 9.dp),
+            )
         }
     }
     widgets.forEach { w ->
-        Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(w.type.label(), Modifier.weight(1f))
+        Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                w.type.label() + if (w.type == WidgetType.PHOTO && w.images.size > 1) " (${w.images.size} foto)" else "",
+                Modifier.weight(1f),
+            )
+            if (w.type == WidgetType.PHOTO) TextButton(onClick = { replacingId = w.id; pickReplace() }) { Text("Ganti foto") }
             TextButton(onClick = { onChange(widgets.filterNot { it.id == w.id }) }) { Text("Hapus") }
         }
     }

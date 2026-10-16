@@ -83,6 +83,7 @@ import com.vinyl.launcher.ui.components.Turntable
 import com.vinyl.launcher.ui.components.TurntableStyle
 import com.vinyl.launcher.ui.components.TwoMonthCalendar
 import com.vinyl.launcher.ui.components.LyricsLines
+import com.vinyl.launcher.ui.components.PhotoWidget
 import com.vinyl.launcher.ui.components.rememberLyrics
 import com.vinyl.launcher.ui.crate.CrateSheet
 import androidx.compose.foundation.clickable
@@ -381,6 +382,7 @@ private fun HomeWidget(
                 weather, textColor, scale = config.scale,
                 modifier = Modifier.glass(RoundedCornerShape(26.dp)).padding(horizontal = 20.dp, vertical = 14.dp),
             )
+            WidgetType.PHOTO -> PhotoWidget(config.images, scale = config.scale)
             WidgetType.BATTERY -> BatteryIndicator(
                 textColor, scale = config.scale,
                 modifier = Modifier.glass(RoundedCornerShape(50)).padding(horizontal = 16.dp, vertical = 10.dp),

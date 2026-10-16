@@ -36,7 +36,7 @@ enum class TonearmStyle { SILVER, BLACK, GOLD }
 enum class GestureAction { NONE, APP_DRAWER, NOTIFICATIONS, LOCK_SCREEN, OPEN_APP, SETTINGS, CRATE }
 
 @Serializable
-enum class WidgetType { CALENDAR, WEATHER, BATTERY }
+enum class WidgetType { CALENDAR, WEATHER, BATTERY, PHOTO }
 
 /** Gaya jam yang dipakai di home screen maupun layar kunci. */
 @Serializable
@@ -70,6 +70,8 @@ data class WidgetConfig(
     val x: Float = 0.75f,
     val y: Float = 0.1f,
     val scale: Float = 1f,
+    /** Untuk widget foto: path gambar (lebih dari satu = slideshow). */
+    val images: List<String> = emptyList(),
 )
 
 @Serializable

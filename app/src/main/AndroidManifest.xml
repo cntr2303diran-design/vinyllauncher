@@ -95,7 +95,6 @@
             android:launchMode="singleInstance"
             android:taskAffinity="com.vinyl.launcher.cover"
             android:showWhenLocked="true"
-            android:turnScreenOn="true"
             android:noHistory="false"
             android:theme="@style/Theme.VinylLauncher.Cover"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|uiMode" />

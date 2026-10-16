@@ -5,6 +5,22 @@ import android.content.Context
 import android.content.Intent
 import android.provider.MediaStore
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PageSize
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.zIndex
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -88,7 +104,7 @@ fun CrateSheet(
     onClose: () -> Unit,
     onClearHistory: () -> Unit,
 ) {
-    var tab by remember { mutableIntStateOf(if (queue.isNotEmpty()) 0 else 1) }
+    var tab by remember { mutableIntStateOf(0) }
     Box(Modifier.fillMaxSize()) {
         AmbientBackdrop(np.art.takeIf { np.hasTrack }, np.swatches, fallback, animate = false, dim = 0.6f)
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -103,7 +119,7 @@ fun CrateSheet(
                 ) { Icon(Icons.Rounded.Close, "Tutup", tint = Color.White) }
             }
             Row(Modifier.padding(start = 32.dp, top = 18.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("Berikutnya", "Koleksi").forEachIndexed { i, t ->
+                listOf("Rak", "Koleksi").forEachIndexed { i, t ->
                     val sel = i == tab
                     Text(
                         t,
@@ -117,53 +133,168 @@ fun CrateSheet(
                     )
                 }
             }
-            if (tab == 0) UpNext(queue) else Collection(history, onClearHistory)
+            if (tab == 0) RecordShelf(np, queue, history) else Collection(history, onClearHistory)
         }
     }
 }
 
-// ======================= Berikutnya =======================
+// ======================= Rak (Sebelumnya / Berikutnya) =======================
 
+/** Satu sampul di rak. */
+private data class ShelfItem(
+    val key: String,
+    val title: String,
+    val subtitle: String,
+    val bitmap: android.graphics.Bitmap?,
+    val source: String?,
+    val art: ImageBitmap?,
+    val relation: Int, // <0 sebelumnya, 0 sedang diputar, >0 berikutnya
+    val play: (() -> Unit)?,
+)
+
+/**
+ * Rak piringan ala "cover flow": sampul-sampul berdiri di atas papan kayu.
+ * Geser ke kanan/kiri untuk melihat lagu sebelumnya & berikutnya; ketuk sampul di tengah untuk memutarnya.
+ * Sumber: antrean aplikasi musik bila tersedia, jika tidak → riwayat (sebelumnya) + lagu saat ini.
+ */
 @Composable
-private fun UpNext(queue: List<MediaRepository.QueueEntry>) {
-    if (queue.isEmpty()) {
-        EmptyState(
-            "Antrean tidak tersedia",
-            "Aplikasi musik yang sedang dipakai tidak membagikan daftar lagu berikutnya. " +
-                "YouTube Music dan beberapa pemutar lokal biasanya membagikannya.",
-        )
+private fun RecordShelf(np: NowPlaying, queue: List<MediaRepository.QueueEntry>, history: List<PlayRecord>) {
+    val context = LocalContext.current
+    val items = remember(np.title, np.artist, np.art, queue, history) {
+        if (queue.isNotEmpty()) {
+            val cur = queue.indexOfFirst { it.isCurrent }.let { if (it < 0) 0 else it }
+            queue.mapIndexed { i, e ->
+                ShelfItem("q${e.id}", e.title, e.subtitle, e.art, e.artUri, null, i - cur, { MediaRepository.playQueueItem(e.id) })
+            }
+        } else {
+            val currentKey = "${np.title.trim().lowercase()}|${np.artist.trim().lowercase()}"
+            val past = history.filter { it.key != currentKey }.take(14).reversed().mapIndexed { i, r ->
+                ShelfItem("h${r.key}", r.title, r.artist, null, r.artFile, null, -(14 - i), { playFromSearch(context, r) })
+            }
+            val now = if (np.hasTrack) listOf(ShelfItem("now", np.title, np.artist, null, null, np.art, 0, null)) else emptyList()
+            past + now
+        }
+    }
+    if (items.isEmpty()) {
+        EmptyState("Rak masih kosong", "Putar beberapa lagu dulu — lagu sebelumnya dan berikutnya akan berjejer di rak ini.")
         return
     }
-    val current = queue.indexOfFirst { it.isCurrent }.coerceAtLeast(0)
-    val state = rememberLazyListState()
-    LaunchedEffect(current, queue.size) { state.animateScrollToItem(current) }
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
-        LazyRow(
-            state = state,
-            contentPadding = PaddingValues(horizontal = 36.dp),
-            horizontalArrangement = Arrangement.spacedBy(26.dp),
-        ) {
-            itemsIndexed(queue, key = { _, e -> e.id }) { i, e ->
-                val img = rememberImage(e.art, e.artUri)
-                Column(
-                    Modifier.width(230.dp).clip(RoundedCornerShape(14.dp)).clickable { MediaRepository.playQueueItem(e.id) },
-                ) {
-                    Sleeve(img, 230.dp, highlight = e.isCurrent)
-                    Spacer(Modifier.height(14.dp))
-                    if (e.isCurrent) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Rounded.GraphicEq, null, tint = Accent, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("SEDANG DIPUTAR", color = Accent, style = MaterialTheme.typography.labelSmall)
-                        }
-                    } else {
-                        Text(if (i > current) "BERIKUTNYA" else "SEBELUMNYA", color = TextTertiary, style = MaterialTheme.typography.labelSmall)
+    val startPage = items.indexOfFirst { it.relation == 0 }.let { if (it < 0) items.lastIndex else it }
+    val pager = rememberPagerState(initialPage = startPage) { items.size }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(startPage, items.size) { pager.animateScrollToPage(startPage) }
+
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val sleeve = minOf(maxHeight * 0.52f, maxWidth * 0.30f, 340.dp)
+        val step = sleeve * 0.62f
+        val focused = items.getOrNull(pager.currentPage)
+
+        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Spacer(Modifier.weight(0.2f))
+            Box(Modifier.fillMaxWidth().height(sleeve + 70.dp)) {
+                // Papan kayu (digambar di belakang sampul)
+                Shelf(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(70.dp))
+                HorizontalPager(
+                    state = pager,
+                    pageSize = PageSize.Fixed(step),
+                    contentPadding = PaddingValues(horizontal = (maxWidth - step) / 2),
+                    beyondViewportPageCount = 3,
+                    modifier = Modifier.fillMaxWidth().height(sleeve + 30.dp).align(Alignment.TopCenter),
+                    verticalAlignment = Alignment.Bottom,
+                ) { page ->
+                    val item = items[page]
+                    val img = item.art ?: rememberImage(item.bitmap, item.source)
+                    val offset = (pager.currentPage - page) + pager.currentPageOffsetFraction
+                    val abs = kotlin.math.abs(offset).coerceAtMost(2f)
+                    Box(
+                        Modifier
+                            .requiredSize(sleeve)
+                            .zIndex(-abs)
+                            .graphicsLayer {
+                                cameraDistance = 14f * density
+                                rotationY = (offset.coerceIn(-1.4f, 1.4f)) * 42f
+                                val sc = 1f - 0.16f * abs.coerceAtMost(1.5f)
+                                scaleX = sc; scaleY = sc
+                                transformOrigin = TransformOrigin(0.5f, 1f) // berdiri di atas papan
+                                alpha = 1f - 0.25f * (abs - 1f).coerceAtLeast(0f)
+                            }
+                            .clickable {
+                                if (page != pager.currentPage) scope.launch { pager.animateScrollToPage(page) }
+                                else item.play?.invoke()
+                            },
+                    ) {
+                        Sleeve(img, null, highlight = item.relation == 0)
                     }
-                    Text(e.title, style = MaterialTheme.typography.titleMedium, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
-                    Text(e.subtitle, style = MaterialTheme.typography.bodyMedium, color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
+            // Info sampul yang sedang di tengah
+            Spacer(Modifier.height(22.dp))
+            if (focused != null) {
+                val (label, color) = when {
+                    focused.relation == 0 -> "SEDANG DIPUTAR" to Accent
+                    focused.relation < 0 -> "SEBELUMNYA" to TextTertiary
+                    else -> "BERIKUTNYA" to TextTertiary
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (focused.relation == 0) {
+                        Icon(Icons.Rounded.GraphicEq, null, tint = Accent, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Text(label, color = color, style = MaterialTheme.typography.labelMedium)
+                }
+                Text(focused.title, style = MaterialTheme.typography.headlineSmall, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp, start = 40.dp, end = 40.dp))
+                Text(focused.subtitle, style = MaterialTheme.typography.bodyLarge, color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (focused.relation != 0 && focused.play != null) Text(
+                    "Ketuk sampul untuk memutar",
+                    style = MaterialTheme.typography.bodySmall, color = TextTertiary, modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+            Spacer(Modifier.weight(0.3f))
         }
+    }
+}
+
+/** Papan rak kayu walnut: permukaan atas terang, sisi depan lebih gelap, serat kayu halus, bayangan di bawah. */
+@Composable
+private fun Shelf(modifier: Modifier) {
+    Canvas(modifier) {
+        val w = size.width
+        val topH = size.height * 0.32f
+        val frontH = size.height * 0.38f
+        val y0 = 0f
+        // Bayangan lembut di bawah papan
+        drawRect(
+            Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.45f), Color.Transparent), startY = y0 + topH + frontH, endY = size.height),
+            topLeft = Offset(0f, y0 + topH + frontH), size = Size(w, size.height - topH - frontH),
+        )
+        // Permukaan atas (perspektif: sedikit lebih terang)
+        drawRect(
+            Brush.verticalGradient(listOf(Color(0xFF6B4A33), Color(0xFF7C5A40)), startY = y0, endY = y0 + topH),
+            topLeft = Offset(0f, y0), size = Size(w, topH),
+        )
+        // Sisi depan
+        drawRect(
+            Brush.verticalGradient(listOf(Color(0xFF4A3021), Color(0xFF2E1D13)), startY = y0 + topH, endY = y0 + topH + frontH),
+            topLeft = Offset(0f, y0 + topH), size = Size(w, frontH),
+        )
+        // Serat kayu
+        val rnd = kotlin.random.Random(7)
+        repeat(26) {
+            val yy = y0 + rnd.nextFloat() * (topH + frontH)
+            val a = 0.05f + rnd.nextFloat() * 0.07f
+            val path = Path().apply {
+                moveTo(0f, yy)
+                var x = 0f
+                while (x < w) {
+                    x += 60f
+                    lineTo(x, yy + kotlin.math.sin(x / (90f + it * 7f)) * 2.2f)
+                }
+            }
+            drawPath(path, Color.Black.copy(alpha = a), style = Stroke(width = 1.2f))
+        }
+        // Garis sorot di tepi depan
+        drawLine(Color.White.copy(alpha = 0.18f), Offset(0f, y0 + topH), Offset(w, y0 + topH), strokeWidth = 1.5f)
+        drawLine(Color.White.copy(alpha = 0.08f), Offset(0f, y0), Offset(w, y0), strokeWidth = 1f)
     }
 }
 

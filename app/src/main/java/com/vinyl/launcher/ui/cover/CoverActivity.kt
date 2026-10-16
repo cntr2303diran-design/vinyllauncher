@@ -31,7 +31,8 @@ class CoverActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setShowWhenLocked(true)
-        setTurnScreenOn(true)
+        // Sengaja TIDAK memakai setTurnScreenOn: activity ini dibuka saat layar dimatikan,
+        // dan menyalakan layar di saat itu akan membuat layar langsung hidup lagi.
         hideSystemBars()
 
         // Back tidak menutup layar kunci; hanya membatalkan editor

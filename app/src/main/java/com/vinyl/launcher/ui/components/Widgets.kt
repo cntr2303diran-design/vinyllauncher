@@ -14,6 +14,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Image
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.draw.shadow
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SkipNext
@@ -385,4 +390,41 @@ private fun ControlButton(icon: androidx.compose.ui.graphics.vector.ImageVector,
         Modifier.size(size + 18.dp).clip(CircleShape).clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) { Icon(icon, desc, tint = Color.White, modifier = Modifier.size(size)) }
+}
+
+// ======================= Foto =======================
+
+/**
+ * Bingkai foto: sudut membulat, bayangan lembut, dan slideshow crossfade
+ * (berganti setiap 8 detik) bila lebih dari satu foto.
+ */
+@Composable
+fun PhotoWidget(images: List<String>, modifier: Modifier = Modifier, scale: Float = 1f) {
+    var index by remember(images) { mutableIntStateOf(0) }
+    LaunchedEffect(images) {
+        if (images.size < 2) return@LaunchedEffect
+        while (true) {
+            delay(8000)
+            index = (index + 1) % images.size
+        }
+    }
+    val shape = RoundedCornerShape(24.dp * scale)
+    Box(
+        modifier
+            .size(width = 220.dp * scale, height = 270.dp * scale)
+            .shadow(24.dp, shape, ambientColor = Color.Black, spotColor = Color.Black)
+            .clip(shape)
+            .background(Color.White.copy(alpha = 0.06f))
+            .border(0.8.dp, Color.White.copy(alpha = 0.14f), shape),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (images.isEmpty()) {
+            Icon(Icons.Rounded.Image, null, tint = Color.White.copy(alpha = 0.4f), modifier = Modifier.size(40.dp))
+        } else {
+            androidx.compose.animation.Crossfade(targetState = images[index % images.size], animationSpec = androidx.compose.animation.core.tween(1200), label = "photo") { path ->
+                val img = rememberFileImage(path)
+                if (img != null) Image(img, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            }
+        }
+    }
 }

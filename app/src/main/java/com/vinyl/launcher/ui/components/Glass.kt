@@ -141,8 +141,8 @@ fun AmbientBackdrop(
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer {
-                            scaleX = 1.35f; scaleY = 1.35f
-                            rotationZ = (t * 2.2f) % 360f   // putaran sangat pelan
+                            // Diam (tidak berputar) — hanya gumpalan warna di atasnya yang melayang pelan
+                            scaleX = 1.3f; scaleY = 1.3f
                             alpha = 0.85f
                         }
                         .then(if (Build.VERSION.SDK_INT >= 31) Modifier.blur(48.dp) else Modifier),

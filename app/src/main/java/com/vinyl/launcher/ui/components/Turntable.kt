@@ -149,11 +149,16 @@ fun Turntable(
         animationSpec = tween(500, easing = FastOutSlowInEasing),
         label = "coverScale",
     )
-    val engage by animateFloatAsState(
-        targetValue = if (playing) 1f else 0f,
-        animationSpec = tween(650, delayMillis = if (playing) 450 else 0, easing = FastOutSlowInEasing),
-        label = "engage",
-    )
+    // Posisi lengan: 0 = istirahat, 1 = jarum di piringan. Memakai Animatable agar bisa
+    // "dipatok" langsung ketika pengguna mengangkat / menaruh lengan dengan tangan.
+    val engageAnim = remember { Animatable(if (playing) 1f else 0f) }
+    LaunchedEffect(playing) {
+        if (playing) kotlinx.coroutines.delay(450)
+        engageAnim.animateTo(if (playing) 1f else 0f, tween(650, easing = FastOutSlowInEasing))
+    }
+    val engage = engageAnim.value
+    /** Status saat lengan diseret: true = jarum di luar piringan (dilepas → jeda). */
+    var armOffRecord by remember { mutableStateOf(false) }
 
     // Loop frame: kecepatan putar naik/turun halus; hanya berjalan saat perlu (hemat baterai)
     LaunchedEffect(playing, degPerSec) {
@@ -229,7 +234,7 @@ fun Turntable(
                 val pos = down.position
                 val discCenter = Offset(discCxNow, cy)
                 val target = when {
-                    hasTrack && np.canSeek && geo.distanceToArm(pos, armThetaNow) < armSlop -> Target.ARM
+                    hasTrack && geo.distanceToArm(pos, armThetaNow) < armSlop -> Target.ARM
                     style.coverVisible && coverRect.contains(pos) -> Target.COVER
                     (pos - discCenter).getDistance() < discR -> Target.VINYL
                     !style.coverVisible && coverRect.contains(pos) -> Target.VINYL
@@ -257,11 +262,18 @@ fun Turntable(
                         }
                         Target.ARM -> {
                             val t = geo.thetaToward(change.position)
-                                .coerceIn(TonearmGeometry.REST_THETA, geo.thetaForProgress(1f))
+                                .coerceIn(TonearmGeometry.REST_THETA - 0.12f, geo.thetaForProgress(1f))
                             armDragTheta = t
-                            val p = geo.progressForRadius(geo.needleRadius(t))
-                            progress = p
-                            previewMs = (p * np.durationMs).toLong()
+                            // Jarum di luar alur terluar = lengan "diangkat" dari piringan
+                            val offRecord = geo.needleRadius(t) > geo.discRadius * (TonearmGeometry.OUTER + 0.03f)
+                            armOffRecord = offRecord
+                            if (!offRecord) {
+                                val p = geo.progressForRadius(geo.needleRadius(t))
+                                progress = p
+                                previewMs = if (np.canSeek && np.durationMs > 0) (p * np.durationMs).toLong() else null
+                            } else {
+                                previewMs = null
+                            }
                         }
                         Target.VINYL -> {
                             scrubbing = true
@@ -293,8 +305,26 @@ fun Turntable(
                         scope.launch { coverOffset.animateTo(0f, spring(dampingRatio = 0.6f, stiffness = 300f)) }
                     }
                     Target.ARM -> {
-                        previewMs?.let { seek(it) }
+                        val wasPlaying = np.isPlaying
+                        if (armOffRecord) {
+                            // Lengan diangkat dari piringan → jeda (lengan langsung diam di posisi istirahat)
+                            scope.launch { engageAnim.snapTo(0f) }
+                            if (wasPlaying) togglePlay()
+                        } else if (moved) {
+                            // Lengan ditaruh di piringan → lompat ke posisi itu & putar
+                            previewMs?.let { seek(it) }
+                            scope.launch { engageAnim.snapTo(1f) }
+                            if (!wasPlaying) {
+                                togglePlay()
+                                // Jika aplikasi musik menolak memutar, kembalikan lengan ke istirahat
+                                scope.launch {
+                                    kotlinx.coroutines.delay(2500)
+                                    if (!np.isPlaying) engageAnim.animateTo(0f, tween(500))
+                                }
+                            }
+                        }
                         armDragTheta = null
+                        armOffRecord = false
                     }
                     Target.VINYL -> {
                         if (moved) previewMs?.let { seek(it) }
@@ -351,6 +381,19 @@ fun Turntable(
             }
 
             // ---------- Indikator waktu saat seek ----------
+            if (armDragTheta != null && (armOffRecord || previewMs == null)) {
+                Text(
+                    text = if (armOffRecord) (if (nowPlaying.isPlaying) "Lepas untuk menjeda" else "Taruh di piringan untuk memutar")
+                    else "Lepas untuk memutar",
+                    color = Color.White,
+                    style = androidx.compose.material3.MaterialTheme.typography.labelLarge,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 4.dp)
+                        .glass(RoundedCornerShape(50), fillAlpha = 0.16f)
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
             previewMs?.let { ms ->
                 Text(
                     text = "${formatMs(ms)}  /  ${formatMs(nowPlaying.durationMs)}",
