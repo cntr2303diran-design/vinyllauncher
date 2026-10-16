@@ -14,6 +14,8 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import java.net.HttpURLConnection
+import java.net.URL
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.app.NotificationManagerCompat
@@ -49,6 +51,8 @@ data class NowPlaying(
     val dominantColor: Int? = null,
     /** Warna aksen cerah dari cover, untuk label vinyl. */
     val accentColor: Int? = null,
+    /** Beberapa warna dari cover untuk latar ambient bergerak (ala Apple Music). */
+    val swatches: List<Int> = emptyList(),
     val positionMs: Long = 0L,
     val positionUpdateTime: Long = 0L,
     val speed: Float = 1f,
@@ -98,6 +102,7 @@ object MediaRepository {
     private var cachedArt: ImageBitmap? = null
     private var cachedDominant: Int? = null
     private var cachedAccent: Int? = null
+    private var cachedSwatches: List<Int> = emptyList()
 
     fun init(context: Context) {
         appContext = context.applicationContext
@@ -185,23 +190,28 @@ object MediaRepository {
             ?: md?.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)
             ?: md?.getString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE) ?: ""
         val album = md?.getString(MediaMetadata.METADATA_KEY_ALBUM) ?: ""
-        val key = "${c.packageName}|$title|$artist|$album"
+        // Kunci cover = lagu + "sidik jari" gambarnya. Banyak aplikasi (mis. Spotify) mengirim
+        // metadata dulu TANPA gambar, lalu menyusulkan gambar untuk lagu yang sama.
+        // Tanpa sidik jari, gambar susulan itu dulu terlewat → cover tidak pernah berganti.
+        val key = "${c.packageName}|$title|$artist|$album|${md?.let { artSignature(it) } ?: "none"}"
         val playing = ps?.state == PlaybackState.STATE_PLAYING ||
             ps?.state == PlaybackState.STATE_BUFFERING
         val actions = ps?.actions ?: 0L
 
-        _state.update { _ ->
+        _state.update { old ->
             NowPlaying(
                 hasSession = true,
                 packageName = c.packageName,
                 title = title,
                 artist = artist,
                 album = album,
-                art = if (key == artKey) cachedArt else null,
+                // Pertahankan cover lama sampai cover baru selesai dimuat (transisi crossfade, tanpa kedip)
+                art = if (key == artKey) cachedArt else old.art,
                 durationMs = md?.getLong(MediaMetadata.METADATA_KEY_DURATION)?.coerceAtLeast(0) ?: 0L,
                 isPlaying = playing,
-                dominantColor = if (key == artKey) cachedDominant else null,
-                accentColor = if (key == artKey) cachedAccent else null,
+                dominantColor = if (key == artKey) cachedDominant else old.dominantColor,
+                accentColor = if (key == artKey) cachedAccent else old.accentColor,
+                swatches = if (key == artKey) cachedSwatches else old.swatches,
                 positionMs = ps?.position ?: 0L,
                 positionUpdateTime = ps?.lastPositionUpdateTime?.takeIf { t -> t > 0 }
                     ?: SystemClock.elapsedRealtime(),
@@ -212,32 +222,61 @@ object MediaRepository {
         if (key != artKey) loadArt(key, md)
     }
 
-    /** Ambil cover dari metadata (bitmap atau URI), lalu hitung warna dengan Palette. */
+    /**
+     * Sidik jari murah untuk gambar cover: ukuran + 5 sampel piksel, atau string URI.
+     * Bitmap dari metadata selalu objek baru tiap dibaca, jadi tidak bisa dibandingkan referensinya.
+     */
+    private fun artSignature(md: MediaMetadata): String {
+        val bmp = md.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
+            ?: md.getBitmap(MediaMetadata.METADATA_KEY_ART)
+            ?: md.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
+        if (bmp != null) {
+            return runCatching {
+                val w = bmp.width; val h = bmp.height
+                val pts = listOf(w / 2 to h / 2, w / 4 to h / 4, 3 * w / 4 to h / 4, w / 4 to 3 * h / 4, 3 * w / 4 to 3 * h / 4)
+                val px = if (bmp.config == Bitmap.Config.HARDWARE) "hw" else pts.joinToString(",") { (x, y) -> bmp.getPixel(x, y).toString() }
+                "${w}x$h:$px"
+            }.getOrDefault("bmp")
+        }
+        return md.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
+            ?: md.getString(MediaMetadata.METADATA_KEY_ART_URI)
+            ?: md.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
+            ?: "none"
+    }
+
+    private data class ArtResult(val art: ImageBitmap, val dominant: Int, val accent: Int, val swatches: List<Int>)
+
+    /** Ambil cover dari metadata (bitmap, content URI, atau URL http), lalu hitung warna dengan Palette. */
     private fun loadArt(key: String, md: MediaMetadata?) {
         artKey = key
-        cachedArt = null; cachedDominant = null; cachedAccent = null
         artJob?.cancel()
         artJob = scope.launch {
-            val result = withContext(Dispatchers.Default) {
-                val bmp = md?.let { extractBitmap(it) } ?: return@withContext null
-                val scaled = if (bmp.width > 768 || bmp.height > 768) {
-                    val f = 768f / maxOf(bmp.width, bmp.height)
-                    bmp.scale((bmp.width * f).toInt().coerceAtLeast(1), (bmp.height * f).toInt().coerceAtLeast(1))
-                } else bmp
-                val safe = if (scaled.config == Bitmap.Config.HARDWARE)
-                    scaled.copy(Bitmap.Config.ARGB_8888, false) else scaled
-                val palette = Palette.from(safe).maximumColorCount(16).generate()
-                val dominant = palette.getDominantColor(0xFF1B1B1F.toInt())
-                val accent = palette.getVibrantColor(palette.getLightVibrantColor(palette.getMutedColor(dominant)))
-                Triple(safe.asImageBitmap(), dominant, accent)
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val bmp = md?.let { extractBitmap(it) } ?: return@runCatching null
+                    val soft = if (bmp.config == Bitmap.Config.HARDWARE) bmp.copy(Bitmap.Config.ARGB_8888, false) else bmp
+                    val scaled = if (soft.width > 900 || soft.height > 900) {
+                        val f = 900f / maxOf(soft.width, soft.height)
+                        soft.scale((soft.width * f).toInt().coerceAtLeast(1), (soft.height * f).toInt().coerceAtLeast(1))
+                    } else soft
+                    val palette = Palette.from(scaled).maximumColorCount(24).generate()
+                    val dominant = palette.getDominantColor(0xFF1B1B1F.toInt())
+                    val accent = palette.getVibrantColor(palette.getLightVibrantColor(palette.getMutedColor(dominant)))
+                    // Warna untuk latar ambient: urut dari yang paling "hidup"
+                    val swatches = listOfNotNull(
+                        palette.vibrantSwatch?.rgb, palette.darkVibrantSwatch?.rgb, palette.mutedSwatch?.rgb,
+                        palette.darkMutedSwatch?.rgb, palette.lightVibrantSwatch?.rgb, palette.dominantSwatch?.rgb,
+                    ).distinct().ifEmpty { listOf(dominant) }
+                    ArtResult(scaled.asImageBitmap(), dominant, accent, swatches)
+                }.getOrNull()
             }
             if (artKey != key) return@launch
-            cachedArt = result?.first
-            cachedDominant = result?.second
-            cachedAccent = result?.third
+            cachedArt = result?.art
+            cachedDominant = result?.dominant
+            cachedAccent = result?.accent
+            cachedSwatches = result?.swatches.orEmpty()
             _state.update { s ->
-                if (s.title.isEmpty() && result == null) s
-                else s.copy(art = cachedArt, dominantColor = cachedDominant, accentColor = cachedAccent)
+                s.copy(art = cachedArt, dominantColor = cachedDominant, accentColor = cachedAccent, swatches = cachedSwatches)
             }
         }
     }
@@ -246,16 +285,29 @@ object MediaRepository {
         md.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)?.let { return it }
         md.getBitmap(MediaMetadata.METADATA_KEY_ART)?.let { return it }
         md.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)?.let { return it }
-        val uri = md.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
-            ?: md.getString(MediaMetadata.METADATA_KEY_ART_URI)
-            ?: md.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
-            ?: return null
-        return runCatching {
-            val u = Uri.parse(uri)
-            if (u.scheme == "content" || u.scheme == "file" || u.scheme == "android.resource") {
-                appContext.contentResolver.openInputStream(u)?.use { BitmapFactory.decodeStream(it) }
-            } else null // URL http(s) tidak diunduh; sebagian besar aplikasi sudah mengirim bitmap
-        }.getOrNull()
+        val uris = listOfNotNull(
+            md.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI),
+            md.getString(MediaMetadata.METADATA_KEY_ART_URI),
+            md.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI),
+        )
+        for (uri in uris) {
+            val bmp = runCatching {
+                val u = Uri.parse(uri)
+                when (u.scheme) {
+                    "content", "file", "android.resource" ->
+                        appContext.contentResolver.openInputStream(u)?.use { BitmapFactory.decodeStream(it) }
+                    "http", "https" -> {
+                        val conn = (URL(uri).openConnection() as HttpURLConnection).apply {
+                            connectTimeout = 6000; readTimeout = 8000
+                        }
+                        try { conn.inputStream.use { BitmapFactory.decodeStream(it) } } finally { conn.disconnect() }
+                    }
+                    else -> null
+                }
+            }.getOrNull()
+            if (bmp != null) return bmp
+        }
+        return null
     }
 
     // ===================== Kontrol =====================

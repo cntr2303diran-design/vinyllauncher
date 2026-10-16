@@ -11,6 +11,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -35,6 +36,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -89,9 +92,22 @@ fun SectionTitle(text: String, modifier: Modifier = Modifier) {
     Text(
         text.uppercase(),
         style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.primary,
-        letterSpacing = 1.5.sp,
-        modifier = modifier.padding(top = 18.dp, bottom = 8.dp),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        letterSpacing = 1.2.sp,
+        modifier = modifier.padding(start = 18.dp, top = 26.dp, bottom = 8.dp),
+    )
+}
+
+/** Kartu pengelompokan ala One UI / daftar berkelompok iOS. */
+@Composable
+fun ControlCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(26.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .padding(horizontal = 18.dp, vertical = 10.dp),
+        content = content,
     )
 }
 
@@ -105,9 +121,24 @@ fun ControlLabel(text: String) {
 fun <T> ChipRow(label: String?, options: List<T>, selected: T, text: (T) -> String, onSelect: (T) -> Unit) {
     Column {
         if (label != null) ControlLabel(label)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        // Pil pilihan ala segmented control iOS: terpilih = putih solid, lainnya = kaca tipis
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(bottom = 6.dp),
+        ) {
             options.forEach { o ->
-                FilterChip(selected = o == selected, onClick = { onSelect(o) }, label = { Text(text(o)) })
+                val sel = o == selected
+                Text(
+                    text(o),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (sel) Color(0xFF111113) else MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(if (sel) Color.White.copy(alpha = 0.94f) else Color.White.copy(alpha = 0.07f))
+                        .clickable { onSelect(o) }
+                        .padding(horizontal = 16.dp, vertical = 9.dp),
+                )
             }
         }
     }
@@ -116,14 +147,25 @@ fun <T> ChipRow(label: String?, options: List<T>, selected: T, text: (T) -> Stri
 @Composable
 fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit, subtitle: String? = null) {
     Row(
-        Modifier.fillMaxWidth().clickable { onChange(!checked) }.padding(vertical = 6.dp),
+        Modifier.fillMaxWidth().clickable { onChange(!checked) }.padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
             Text(label, style = MaterialTheme.typography.bodyLarge)
             if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Switch(checked = checked, onCheckedChange = onChange)
+        Switch(
+            checked = checked,
+            onCheckedChange = onChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = MaterialTheme.colorScheme.primary,
+                checkedBorderColor = Color.Transparent,
+                uncheckedThumbColor = Color.White,
+                uncheckedTrackColor = Color.White.copy(alpha = 0.16f),
+                uncheckedBorderColor = Color.Transparent,
+            ),
+        )
     }
 }
 
@@ -135,7 +177,16 @@ fun SliderRow(label: String, value: Float, range: ClosedFloatingPointRange<Float
             Spacer(Modifier.weight(1f))
             Text(valueText(value), style = MaterialTheme.typography.bodySmall)
         }
-        Slider(value = value, onValueChange = onChange, valueRange = range)
+        Slider(
+            value = value,
+            onValueChange = onChange,
+            valueRange = range,
+            colors = SliderDefaults.colors(
+                thumbColor = Color.White,
+                activeTrackColor = Color.White.copy(alpha = 0.85f),
+                inactiveTrackColor = Color.White.copy(alpha = 0.16f),
+            ),
+        )
     }
 }
 
@@ -308,29 +359,54 @@ fun WidgetType.label() = when (this) {
     WidgetType.BATTERY -> "Baterai"
 }
 
-/** Semua kontrol gaya home screen, dikelompokkan per bagian. */
+/** Bagian editor home screen (dipakai sebagai tab di panel edit). */
+enum class HomeSection(val title: String) {
+    BACKGROUND("Latar"), TURNTABLE("Turntable"), CLOCK("Jam"), WIDGETS("Widget")
+}
+
+/** Kontrol untuk satu bagian gaya home screen, dibungkus kartu. */
+@Composable
+fun HomeSectionControls(section: HomeSection, home: HomeSettings, onChange: (HomeSettings) -> Unit) {
+    when (section) {
+        HomeSection.BACKGROUND -> {
+            SectionTitle("Latar")
+            ControlCard { BackgroundControls(home.background, allowGradient = true, pickerName = "home") { onChange(home.copy(background = it)) } }
+        }
+        HomeSection.TURNTABLE -> {
+            SectionTitle("Turntable")
+            ControlCard {
+                SliderRow("Ukuran", home.turntableSize, 0.5f..1f, { onChange(home.copy(turntableSize = it)) })
+                ChipRow("Posisi", TurntablePosition.entries, home.turntablePosition, { it.label() }) { onChange(home.copy(turntablePosition = it)) }
+                ChipRow("Kecepatan", listOf(33, 45), home.rpm, { "$it RPM" }) { onChange(home.copy(rpm = it)) }
+            }
+            SectionTitle("Piringan & lengan")
+            ControlCard {
+                ChipRow("Gaya vinyl", VinylStyle.entries, home.vinylStyle, { it.label() }) { onChange(home.copy(vinylStyle = it)) }
+                ChipRow("Gaya tonearm", TonearmStyle.entries, home.tonearmStyle, { it.label() }) { onChange(home.copy(tonearmStyle = it)) }
+            }
+            SectionTitle("Sampul album")
+            ControlCard {
+                SwitchRow("Tampilkan sampul", home.coverVisible, { onChange(home.copy(coverVisible = it)) })
+                SwitchRow("Sudut membulat", home.coverRounded, { onChange(home.copy(coverRounded = it)) })
+                SwitchRow("Bayangan", home.coverShadow, { onChange(home.copy(coverShadow = it)) })
+                SwitchRow("Judul & progress di bawah turntable", home.trackInfoVisible, { onChange(home.copy(trackInfoVisible = it)) })
+            }
+        }
+        HomeSection.CLOCK -> {
+            SectionTitle("Jam & tanggal")
+            ControlCard { ClockControls(home.clock, { onChange(home.copy(clock = it)) }) }
+        }
+        HomeSection.WIDGETS -> {
+            SectionTitle("Widget tambahan")
+            ControlCard { WidgetControls(home.widgets) { onChange(home.copy(widgets = it)) } }
+        }
+    }
+}
+
+/** Semua kontrol gaya home screen (halaman Pengaturan). */
 @Composable
 fun HomeStyleControls(home: HomeSettings, onChange: (HomeSettings) -> Unit) {
-    SectionTitle("Latar")
-    BackgroundControls(home.background, allowGradient = true, pickerName = "home") { onChange(home.copy(background = it)) }
-
-    SectionTitle("Turntable")
-    SliderRow("Ukuran", home.turntableSize, 0.5f..1f, { onChange(home.copy(turntableSize = it)) })
-    ChipRow("Posisi", TurntablePosition.entries, home.turntablePosition, { it.label() }) { onChange(home.copy(turntablePosition = it)) }
-    ChipRow("Gaya vinyl", VinylStyle.entries, home.vinylStyle, { it.label() }) { onChange(home.copy(vinylStyle = it)) }
-    ChipRow("Gaya tonearm", TonearmStyle.entries, home.tonearmStyle, { it.label() }) { onChange(home.copy(tonearmStyle = it)) }
-    ChipRow("Kecepatan", listOf(33, 45), home.rpm, { "$it RPM" }) { onChange(home.copy(rpm = it)) }
-
-    SectionTitle("Sampul album")
-    SwitchRow("Tampilkan sampul", home.coverVisible, { onChange(home.copy(coverVisible = it)) })
-    SwitchRow("Sudut membulat", home.coverRounded, { onChange(home.copy(coverRounded = it)) })
-    SwitchRow("Bayangan", home.coverShadow, { onChange(home.copy(coverShadow = it)) })
-
-    SectionTitle("Jam & tanggal")
-    ClockControls(home.clock, { onChange(home.copy(clock = it)) })
-
-    SectionTitle("Widget tambahan")
-    WidgetControls(home.widgets) { onChange(home.copy(widgets = it)) }
+    HomeSection.entries.forEach { HomeSectionControls(it, home, onChange) }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -360,22 +436,24 @@ fun WidgetControls(widgets: List<WidgetConfig>, onChange: (List<WidgetConfig>) -
 @Composable
 fun CoverStyleControls(cover: CoverSettings, onChange: (CoverSettings) -> Unit, onRequestCalendarPermission: () -> Unit) {
     SectionTitle("Jam")
-    ClockControls(cover.clock, { onChange(cover.copy(clock = it)) }, showDateToggle = false)
+    ControlCard { ClockControls(cover.clock, { onChange(cover.copy(clock = it)) }, showDateToggle = false) }
 
     SectionTitle("Elemen layar kunci")
-    ElementControls("Tanggal", cover.date) { onChange(cover.copy(date = it)) }
-    ElementControls("Kalender dua bulan", cover.calendar) { onChange(cover.copy(calendar = it)) }
-    if (cover.calendar.visible) SwitchRow(
-        "Titik acara dari kalender perangkat",
-        cover.calendarEvents,
-        { on -> if (on) onRequestCalendarPermission(); onChange(cover.copy(calendarEvents = on)) },
-        subtitle = "Memerlukan izin kalender",
-    )
-    ElementControls("Info lagu", cover.songInfo) { onChange(cover.copy(songInfo = it)) }
-    ElementControls("Baterai", cover.battery) { onChange(cover.copy(battery = it)) }
+    ControlCard {
+        ElementControls("Tanggal", cover.date) { onChange(cover.copy(date = it)) }
+        ElementControls("Kalender dua bulan", cover.calendar) { onChange(cover.copy(calendar = it)) }
+        if (cover.calendar.visible) SwitchRow(
+            "Titik acara dari kalender perangkat",
+            cover.calendarEvents,
+            { on -> if (on) onRequestCalendarPermission(); onChange(cover.copy(calendarEvents = on)) },
+            subtitle = "Memerlukan izin kalender",
+        )
+        ElementControls("Kartu musik", cover.songInfo) { onChange(cover.copy(songInfo = it)) }
+        ElementControls("Baterai", cover.battery) { onChange(cover.copy(battery = it)) }
+    }
 
     SectionTitle("Latar")
-    BackgroundControls(cover.background, allowGradient = false, pickerName = "cover") { onChange(cover.copy(background = it)) }
+    ControlCard { BackgroundControls(cover.background, allowGradient = false, pickerName = "cover") { onChange(cover.copy(background = it)) } }
 }
 
 @Composable

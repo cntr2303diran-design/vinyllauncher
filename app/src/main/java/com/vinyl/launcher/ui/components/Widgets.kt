@@ -6,6 +6,22 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.SkipPrevious
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,6 +59,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.em
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.core.content.ContextCompat
 import com.vinyl.launcher.data.CalendarRepository
 import com.vinyl.launcher.data.WeatherInfo
@@ -80,20 +98,23 @@ fun MiniCalendar(
     val fs = (cell.value * 0.42f).sp
 
     Column(modifier) {
+        // Judul bulan ala widget kalender iOS: huruf kapital kecil berwarna aksen
         Text(
-            month.month.getDisplayName(TextStyle.FULL_STANDALONE, locale).replaceFirstChar { it.titlecase(locale) } +
-                " " + month.year,
-            color = color,
-            fontSize = (cell.value * 0.5f).sp,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier.padding(bottom = 6.dp, start = 4.dp),
+            month.month.getDisplayName(TextStyle.FULL_STANDALONE, locale).uppercase(locale) +
+                if (month.year != today.year) " ${month.year}" else "",
+            color = accent,
+            fontSize = (cell.value * 0.40f).sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.08.em,
+            modifier = Modifier.padding(bottom = 8.dp, start = cell * 0.18f),
         )
         Row {
             days.forEach { d ->
                 Text(
                     d.getDisplayName(TextStyle.NARROW_STANDALONE, locale),
-                    color = color.copy(alpha = if (d == DayOfWeek.SUNDAY) 0.75f else 0.45f),
-                    fontSize = fs * 0.85f,
+                    color = color.copy(alpha = if (d == DayOfWeek.SUNDAY) 0.7f else 0.42f),
+                    fontSize = fs * 0.8f,
+                    fontWeight = FontWeight.SemiBold,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.width(cell),
                 )
@@ -117,7 +138,7 @@ fun MiniCalendar(
                                     else -> color.copy(alpha = 0.85f)
                                 },
                                 fontSize = fs,
-                                fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
+                                fontWeight = if (isToday) FontWeight.Bold else FontWeight.Medium,
                             )
                             if (date in eventDays) {
                                 Box(
@@ -139,9 +160,11 @@ fun MiniCalendar(
 fun VinylDot(accent: Color, modifier: Modifier = Modifier) {
     Canvas(modifier) {
         val r = size.minDimension / 2f
+        // Piringan mini: badan hitam beralur, label aksen penuh di tengah
         drawCircle(Color(0xFF0B0B0D), r)
-        for (i in 1..3) drawCircle(Color.White.copy(alpha = 0.10f), r * (0.55f + i * 0.12f), style = Stroke(1f))
-        drawCircle(accent.copy(alpha = 0.85f), r * 0.42f, style = Stroke(r * 0.12f))
+        for (i in 0..3) drawCircle(Color.White.copy(alpha = 0.09f), r * (0.70f + i * 0.08f), style = Stroke(1f))
+        drawCircle(accent, r * 0.62f)
+        drawCircle(Color.Black.copy(alpha = 0.18f), r * 0.62f, style = Stroke(r * 0.04f))
     }
 }
 
@@ -155,6 +178,7 @@ fun TwoMonthCalendar(
     modifier: Modifier = Modifier,
     cell: Dp = 28.dp,
     vertical: Boolean = false,
+    card: Boolean = false,
 ) {
     val context = LocalContext.current
     val thisMonth = YearMonth.from(today)
@@ -167,7 +191,8 @@ fun TwoMonthCalendar(
         Spacer(Modifier.size(cell * 0.8f))
         MiniCalendar(nextMonth, today, events, color, accent, cell = cell)
     }
-    if (vertical) Column(modifier) { content() } else Row(modifier) { content() }
+    val m = if (card) modifier.glass(RoundedCornerShape(26.dp)).padding(horizontal = 18.dp, vertical = 16.dp) else modifier
+    if (vertical) Column(m) { content() } else Row(m) { content() }
 }
 
 // ======================= Baterai =======================
@@ -200,29 +225,36 @@ fun rememberBattery(): BatteryStatus {
     return status
 }
 
-/** Indikator baterai minimalis (ikon digambar Canvas + persen). */
+/** Indikator baterai minimalis ala status bar iOS (ikon digambar Canvas + persen). */
 @Composable
 fun BatteryIndicator(color: Color, modifier: Modifier = Modifier, scale: Float = 1f) {
     val b = rememberBattery()
-    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp * scale)) {
-        Canvas(Modifier.size(width = 26.dp * scale, height = 13.dp * scale)) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp * scale)) {
+        Text(
+            "${b.level}%",
+            color = color,
+            fontSize = (15 * scale).sp,
+            fontWeight = FontWeight.SemiBold,
+            style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"),
+        )
+        Canvas(Modifier.size(width = 27.dp * scale, height = 13.dp * scale)) {
             val bodyW = size.width * 0.9f
-            drawRoundRect(color.copy(alpha = 0.7f), size = Size(bodyW, size.height), cornerRadius = CornerRadius(size.height * 0.25f), style = Stroke(size.height * 0.1f))
-            drawRoundRect(color.copy(alpha = 0.7f), topLeft = Offset(bodyW + 1f, size.height * 0.3f), size = Size(size.width * 0.08f, size.height * 0.4f))
-            val fillColor = when {
-                b.charging -> Color(0xFF7BD389)
-                b.level <= 15 -> Color(0xFFE5534B)
+            val corner = CornerRadius(size.height * 0.32f)
+            drawRoundRect(color.copy(alpha = 0.35f), size = Size(bodyW, size.height), cornerRadius = corner, style = Stroke(size.height * 0.09f))
+            drawRoundRect(color.copy(alpha = 0.4f), topLeft = Offset(bodyW + size.width * 0.02f, size.height * 0.33f), size = Size(size.width * 0.06f, size.height * 0.34f), cornerRadius = CornerRadius(2f))
+            val fill = when {
+                b.charging -> Color(0xFF34C759)
+                b.level <= 20 -> Color(0xFFFF453A)
                 else -> color
             }
-            val inset = size.height * 0.2f
+            val inset = size.height * 0.17f
             drawRoundRect(
-                fillColor,
+                fill,
                 topLeft = Offset(inset, inset),
-                size = Size((bodyW - inset * 2) * b.level / 100f, size.height - inset * 2),
-                cornerRadius = CornerRadius(size.height * 0.1f),
+                size = Size(((bodyW - inset * 2) * b.level / 100f).coerceAtLeast(2f), size.height - inset * 2),
+                cornerRadius = CornerRadius(size.height * 0.18f),
             )
         }
-        Text("${b.level}%" + if (b.charging) " ⚡" else "", color = color, fontSize = (14 * scale).sp)
     }
 }
 
@@ -236,7 +268,7 @@ fun WeatherWidget(settings: WeatherSettings, color: Color, modifier: Modifier = 
             delay(30 * 60 * 1000L)
         }
     }
-    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp * scale)) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp * scale)) {
         val icon = when (weather?.code ?: -1) {
             -1 -> Icons.Rounded.Cloud
             0, 1 -> Icons.Rounded.WbSunny
@@ -244,15 +276,15 @@ fun WeatherWidget(settings: WeatherSettings, color: Color, modifier: Modifier = 
             in 95..99 -> Icons.Rounded.Thunderstorm
             else -> Icons.Rounded.Cloud
         }
-        Icon(icon, null, tint = color, modifier = Modifier.size(30.dp * scale))
+        Icon(icon, null, tint = color, modifier = Modifier.size(34.dp * scale))
         Column {
             Text(
                 weather?.let { "${it.temperatureC.toInt()}°" } ?: "--°",
-                color = color, fontSize = (26 * scale).sp, fontWeight = FontWeight.Light,
+                color = color, fontSize = (34 * scale).sp, fontWeight = FontWeight.Light, letterSpacing = (-0.03).em,
             )
             Text(
                 weather?.let { "${it.city} · ${it.description}" } ?: settings.cityName,
-                color = color.copy(alpha = 0.7f), fontSize = (12 * scale).sp,
+                color = color.copy(alpha = 0.65f), fontSize = (13 * scale).sp, fontWeight = FontWeight.Medium,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
@@ -261,17 +293,96 @@ fun WeatherWidget(settings: WeatherSettings, color: Color, modifier: Modifier = 
 
 // ======================= Info lagu =======================
 
+/** Judul + artis (tanpa kontrol). */
 @Composable
 fun SongInfo(title: String, artist: String, color: Color, modifier: Modifier = Modifier, alignEnd: Boolean = false) {
     Column(modifier, horizontalAlignment = if (alignEnd) Alignment.End else Alignment.Start) {
         Text(
             title.ifBlank { "Tidak ada yang diputar" },
-            color = color, fontSize = 20.sp, fontWeight = FontWeight.Medium,
+            color = color, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.01).em,
             maxLines = 1, overflow = TextOverflow.Ellipsis,
         )
         if (artist.isNotBlank()) {
             Spacer(Modifier.height(2.dp))
-            Text(artist, color = color.copy(alpha = 0.7f), fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(artist, color = color.copy(alpha = 0.62f), fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
+}
+
+/**
+ * Kartu "Now Playing" kaca — perpaduan widget musik layar kunci iOS dan Now Bar One UI:
+ * thumbnail cover, judul/artis, progress tipis dengan waktu, dan kontrol putar.
+ */
+@Composable
+fun NowPlayingCard(
+    np: com.vinyl.launcher.media.NowPlaying,
+    modifier: Modifier = Modifier,
+    onTogglePlay: () -> Unit,
+    onNext: () -> Unit,
+    onPrevious: () -> Unit,
+    onOpen: () -> Unit,
+) {
+    var progress by remember { mutableFloatStateOf(np.progress) }
+    LaunchedEffect(np) {
+        while (true) {
+            progress = np.progress
+            if (!np.isPlaying) break
+            delay(500)
+        }
+    }
+    Column(
+        modifier
+            .widthIn(max = 460.dp)
+            .glass(RoundedCornerShape(28.dp))
+            .padding(16.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)).background(Color.White.copy(alpha = 0.08f))
+                    .clickable(onClick = onOpen),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (np.art != null) Image(np.art, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                else Icon(Icons.Rounded.MusicNote, null, tint = Color.White.copy(alpha = 0.5f))
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    if (np.hasTrack) np.title else "Tidak ada yang diputar",
+                    color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    if (np.hasTrack) np.artist else "Ketuk untuk membuka musik",
+                    color = Color.White.copy(alpha = 0.6f), fontSize = 14.sp,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (np.hasTrack) {
+                ControlButton(Icons.Rounded.SkipPrevious, "Sebelumnya", 26.dp, onPrevious)
+                ControlButton(if (np.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "Putar/jeda", 34.dp, onTogglePlay)
+                ControlButton(Icons.Rounded.SkipNext, "Berikutnya", 26.dp, onNext)
+            }
+        }
+        if (np.hasTrack && np.durationMs > 0) {
+            Spacer(Modifier.height(14.dp))
+            Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.18f))) {
+                Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).fillMaxHeight().background(Color.White.copy(alpha = 0.85f)))
+            }
+            Spacer(Modifier.height(6.dp))
+            Row {
+                Text(formatMs(np.positionAt()), color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp, fontWeight = FontWeight.Medium, style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"))
+                Spacer(Modifier.weight(1f))
+                Text("-" + formatMs(np.durationMs - np.positionAt()), color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp, fontWeight = FontWeight.Medium, style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ControlButton(icon: androidx.compose.ui.graphics.vector.ImageVector, desc: String, size: Dp, onClick: () -> Unit) {
+    Box(
+        Modifier.size(size + 18.dp).clip(CircleShape).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { Icon(icon, desc, tint = Color.White, modifier = Modifier.size(size)) }
 }

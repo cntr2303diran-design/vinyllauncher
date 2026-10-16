@@ -84,7 +84,9 @@ data class HomeSettings(
     val coverRounded: Boolean = true,
     val coverShadow: Boolean = true,
     val rpm: Int = 33,
-    val clock: ClockSettings = ClockSettings(scale = 0.45f, anchor = Anchor.TOP_START),
+    val clock: ClockSettings = ClockSettings(type = ClockType.BOLD, scale = 0.62f, anchor = Anchor.TOP_START),
+    /** Judul, artis & progress di bawah turntable (ala Apple Music). */
+    val trackInfoVisible: Boolean = true,
     val widgets: List<WidgetConfig> = emptyList(),
 )
 
@@ -94,10 +96,10 @@ data class CoverElement(val visible: Boolean = true, val anchor: Anchor = Anchor
 
 @Serializable
 data class CoverSettings(
-    val clock: ClockSettings = ClockSettings(type = ClockType.THIN, scale = 1.4f, anchor = Anchor.CENTER),
-    val date: CoverElement = CoverElement(true, Anchor.CENTER),
-    val calendar: CoverElement = CoverElement(true, Anchor.CENTER),
-    val songInfo: CoverElement = CoverElement(true, Anchor.TOP_START),
+    val clock: ClockSettings = ClockSettings(type = ClockType.BOLD, scale = 1.5f, anchor = Anchor.TOP_START, showDate = false),
+    val date: CoverElement = CoverElement(true, Anchor.TOP_START),
+    val calendar: CoverElement = CoverElement(true, Anchor.CENTER_START),
+    val songInfo: CoverElement = CoverElement(true, Anchor.BOTTOM_START),
     val battery: CoverElement = CoverElement(true, Anchor.TOP_END),
     val calendarEvents: Boolean = false,
     val background: BackgroundSettings = BackgroundSettings(type = BackgroundType.ALBUM),

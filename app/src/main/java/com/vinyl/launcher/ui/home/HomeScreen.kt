@@ -3,6 +3,27 @@ package com.vinyl.launcher.ui.home
 import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
+import com.vinyl.launcher.ui.components.formatMs
+import com.vinyl.launcher.ui.components.glass
+import com.vinyl.launcher.ui.theme.TextPrimary
+import com.vinyl.launcher.ui.theme.TextSecondary
+import com.vinyl.launcher.ui.theme.TextTertiary
+import kotlinx.coroutines.delay
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -98,15 +119,21 @@ fun HomeScreen(vm: HomeViewModel) {
     val accent = if (np.hasTrack) np.accentColor?.toComposeColor() ?: NeutralLabel else NeutralLabel
     val bgColor = dominant.darken(0.12f)
 
-    BackHandler(enabled = drawerOpen || editing) {
-        if (drawerOpen) vm.closeDrawer() else vm.cancelEdit()
+    // SELALU tangani tombol/gestur Back di launcher. Tanpa ini, Android memutar animasi
+    // "kembali" (predictive back) ke Home… yang adalah launcher itu sendiri → layar berkedip/glitch.
+    BackHandler(enabled = true) {
+        when {
+            drawerOpen -> vm.closeDrawer()
+            editing -> vm.cancelEdit()
+            else -> Unit // sudah di Home: abaikan
+        }
     }
 
     val gestures by rememberUpdatedState(settings.gestures)
     var dockReplaceIndex by remember { mutableIntStateOf(-1) }
 
     Box(Modifier.fillMaxSize()) {
-        BackgroundLayer(home.background, bgColor)
+        BackgroundLayer(home.background, bgColor, art = np.art.takeIf { np.hasTrack }, swatches = np.swatches, animate = np.isPlaying)
 
         // Area konten; saat edit, menyusut agar pratinjau tidak tertutup panel editor
         Box(
@@ -173,6 +200,7 @@ fun HomeScreen(vm: HomeViewModel) {
             AppDrawer(
                 apps = visibleApps,
                 tint = bgColor,
+                np = np,
                 dockEnabled = settings.dock.enabled,
                 dockKeys = settings.dock.apps,
                 onLaunch = vm::launch,
@@ -219,8 +247,10 @@ private fun HomeContent(
         val maxW = maxWidth
         val maxH = maxHeight
 
-        // ----- Turntable -----
-        val baseWidth = minOf(maxW * 0.94f, maxH * 0.80f * TURNTABLE_ASPECT)
+        // ----- Turntable (+ info lagu di bawahnya, ala Apple Music) -----
+        val showInfo = home.trackInfoVisible
+        val heightShare = if (showInfo) 0.66f else 0.80f
+        val baseWidth = minOf(maxW * 0.94f, maxH * heightShare * TURNTABLE_ASPECT)
         val ttWidth = baseWidth * home.turntableSize
         val ttHeight = ttWidth / TURNTABLE_ASPECT
         val align = when (home.turntablePosition) {
@@ -228,29 +258,34 @@ private fun HomeContent(
             TurntablePosition.CENTER -> Alignment.Center
             TurntablePosition.RIGHT -> Alignment.CenterEnd
         }
-        Turntable(
-            nowPlaying = np,
-            style = TurntableStyle(
-                vinylStyle = home.vinylStyle,
-                tonearmStyle = home.tonearmStyle,
-                coverVisible = home.coverVisible,
-                coverRounded = home.coverRounded,
-                coverShadow = home.coverShadow,
-                rpm = home.rpm,
-            ),
-            labelColor = accent,
-            discTint = dominant,
-            interactive = !editing,
-            onTogglePlay = vm::togglePlay,
-            onNext = vm::next,
-            onPrevious = vm::previous,
-            onSeek = vm::seek,
-            onOpenMusic = vm::openMusic,
-            modifier = Modifier
-                .align(align)
-                .padding(horizontal = 24.dp)
-                .size(ttWidth, ttHeight),
-        )
+        Column(
+            Modifier.align(align).padding(horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Turntable(
+                nowPlaying = np,
+                style = TurntableStyle(
+                    vinylStyle = home.vinylStyle,
+                    tonearmStyle = home.tonearmStyle,
+                    coverVisible = home.coverVisible,
+                    coverRounded = home.coverRounded,
+                    coverShadow = home.coverShadow,
+                    rpm = home.rpm,
+                ),
+                labelColor = accent,
+                discTint = dominant,
+                interactive = !editing,
+                onTogglePlay = vm::togglePlay,
+                onNext = vm::next,
+                onPrevious = vm::previous,
+                onSeek = vm::seek,
+                onOpenMusic = vm::openMusic,
+                modifier = Modifier.size(ttWidth, ttHeight),
+            )
+            if (showInfo) {
+                TrackInfo(np, Modifier.padding(top = 28.dp).width(minOf(ttWidth * 0.62f, 560.dp)))
+            }
+        }
 
         // ----- Jam & tanggal (kecil, default pojok kiri atas) -----
         if (home.clock.visible) {
@@ -298,7 +333,7 @@ private fun HomeWidget(
             .onSizeChanged { size = it }
             .then(
                 if (editing) Modifier
-                    .border(1.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                    .border(1.5.dp, Color.White.copy(alpha = 0.55f), RoundedCornerShape(20.dp))
                     .pointerInput(areaW, areaH) {
                         detectDragGestures { change, drag ->
                             change.consume()
@@ -320,10 +355,17 @@ private fun HomeWidget(
                 showEvents = false,
                 color = textColor,
                 accent = accent,
+                card = true,
                 cell = (22 * config.scale).dp,
             )
-            WidgetType.WEATHER -> WeatherWidget(weather, textColor, scale = config.scale)
-            WidgetType.BATTERY -> BatteryIndicator(textColor, scale = config.scale)
+            WidgetType.WEATHER -> WeatherWidget(
+                weather, textColor, scale = config.scale,
+                modifier = Modifier.glass(RoundedCornerShape(26.dp)).padding(horizontal = 20.dp, vertical = 14.dp),
+            )
+            WidgetType.BATTERY -> BatteryIndicator(
+                textColor, scale = config.scale,
+                modifier = Modifier.glass(RoundedCornerShape(50)).padding(horizontal = 16.dp, vertical = 10.dp),
+            )
         }
         if (editing) {
             // Pegangan ubah ukuran di sudut kanan bawah
@@ -348,3 +390,59 @@ private fun HomeWidget(
 /** Lebar panel editor di landscape & tinggi di portrait. */
 val EDITOR_WIDTH = 400.dp
 val EDITOR_HEIGHT_PORTRAIT = 440.dp
+
+/**
+ * Info lagu di bawah turntable: judul tebal, artis redup, progress tipis + waktu
+ * (hierarki Now Playing Apple Music). Ketuk tidak diperlukan — kontrol ada di turntable.
+ */
+@Composable
+private fun TrackInfo(np: NowPlaying, modifier: Modifier = Modifier) {
+    var progress by remember { mutableFloatStateOf(np.progress) }
+    var posText by remember { mutableStateOf(formatMs(np.positionAt())) }
+    LaunchedEffect(np) {
+        while (true) {
+            progress = np.progress
+            posText = formatMs(np.positionAt())
+            if (!np.isPlaying) break
+            delay(500)
+        }
+    }
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        AnimatedContent(
+            targetState = np.title to np.artist,
+            transitionSpec = { (fadeIn(tween(400)) + slideInVertically { it / 3 }) togetherWith fadeOut(tween(250)) },
+            label = "track",
+        ) { (title, artist) ->
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    if (np.hasTrack) title else "Tidak ada yang diputar",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    if (np.hasTrack) artist else "Ketuk sampul untuk membuka aplikasi musik",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+        }
+        if (np.hasTrack && np.durationMs > 0) {
+            Box(
+                Modifier.padding(top = 18.dp).fillMaxWidth().height(4.dp)
+                    .clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.16f))
+            ) {
+                Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).fillMaxHeight().background(Color.White.copy(alpha = 0.78f)))
+            }
+            Row(Modifier.fillMaxWidth().padding(top = 6.dp)) {
+                Text(posText, style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"), color = TextTertiary)
+                Spacer(Modifier.weight(1f))
+                Text(formatMs(np.durationMs), style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"), color = TextTertiary)
+            }
+        }
+    }
+}

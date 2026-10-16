@@ -9,6 +9,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
@@ -135,6 +138,12 @@ fun Turntable(
         targetValue = if (playing) 0.62f else 0.42f,
         animationSpec = tween(800, delayMillis = if (playing) 0 else 650, easing = FastOutSlowInEasing),
         label = "slide",
+    )
+    // Ala Apple Music: sampul sedikit mengecil saat pause, kembali penuh saat play
+    val coverScale by animateFloatAsState(
+        targetValue = if (playing || !hasTrack) 1f else 0.955f,
+        animationSpec = tween(500, easing = FastOutSlowInEasing),
+        label = "coverScale",
     )
     val engage by animateFloatAsState(
         targetValue = if (playing) 1f else 0f,
@@ -309,7 +318,9 @@ fun Turntable(
                         .size(coverDp)
                         .graphicsLayer {
                             translationX = coverOffset.value
-                            rotationZ = coverOffset.value / s * 6f
+                            rotationZ = coverOffset.value / s * 5f
+                            scaleX = coverScale
+                            scaleY = coverScale
                         },
                 )
             }
@@ -322,22 +333,21 @@ fun Turntable(
             // ---------- Indikator waktu saat seek ----------
             previewMs?.let { ms ->
                 Text(
-                    text = "${formatMs(ms)} / ${formatMs(nowPlaying.durationMs)}",
+                    text = "${formatMs(ms)}  /  ${formatMs(nowPlaying.durationMs)}",
                     color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
+                    style = androidx.compose.material3.MaterialTheme.typography.labelLarge,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(bottom = 4.dp)
-                        .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(50))
-                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                        .glass(RoundedCornerShape(50), fillAlpha = 0.16f)
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
                 )
             }
         }
     }
 }
 
-/** Sampul album persegi dengan sudut membulat & bayangan lembut (opsional). */
+/** Sampul album persegi: sudut membulat halus, bayangan dua lapis (lembut + tajam) ala Apple Music. */
 @Composable
 fun AlbumCover(
     art: ImageBitmap?,
@@ -346,44 +356,51 @@ fun AlbumCover(
     placeholderText: String,
     modifier: Modifier = Modifier,
 ) {
-    val shape = if (rounded) RoundedCornerShape(6) else RectangleShape
+    val shape = if (rounded) RoundedCornerShape(percent = 4) else RectangleShape
     Box(
         modifier
-            .then(if (shadow) Modifier.shadow(28.dp, shape, ambientColor = Color.Black, spotColor = Color.Black) else Modifier)
+            .then(
+                if (shadow) Modifier
+                    .shadow(40.dp, shape, ambientColor = Color.Black.copy(alpha = 0.5f), spotColor = Color.Black.copy(alpha = 0.7f))
+                    .shadow(6.dp, shape, ambientColor = Color.Black.copy(alpha = 0.3f), spotColor = Color.Black.copy(alpha = 0.4f))
+                else Modifier
+            )
             .clip(shape)
-            .background(Color(0xFF26262A))
+            .background(Color(0xFF1E1E22))
     ) {
-        Crossfade(targetState = art, animationSpec = tween(600), label = "cover") { img ->
+        Crossfade(targetState = art, animationSpec = tween(700), label = "cover") { img ->
             if (img != null) {
                 Image(img, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             } else {
                 NeutralSleeve(placeholderText)
             }
         }
+        // Garis tepi sangat tipis agar sampul gelap tetap terpisah dari latar gelap
+        Box(Modifier.fillMaxSize().border(0.6.dp, Color.White.copy(alpha = 0.10f), shape))
     }
 }
 
-/** Sampul netral saat tidak ada musik: kertas gelap dengan ikon dan teks. */
+/** Sampul netral saat tidak ada musik: lengan kertas gelap dengan cincin vinyl tercetak. */
 @Composable
 private fun NeutralSleeve(text: String) {
     Box(
         Modifier
             .fillMaxSize()
-            .background(
-                androidx.compose.ui.graphics.Brush.linearGradient(
-                    listOf(Color(0xFF2C2C31), Color(0xFF1C1C20))
-                )
-            ),
+            .background(Brush.linearGradient(listOf(Color(0xFF2A2A2F), Color(0xFF17171A)))),
         contentAlignment = Alignment.Center,
     ) {
+        Canvas(Modifier.fillMaxSize()) {
+            val r = size.minDimension * 0.30f
+            for (i in 0..5) drawCircle(Color.White.copy(alpha = 0.035f), r * (0.45f + i * 0.11f), style = Stroke(1.2f))
+        }
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Icon(Icons.Rounded.MusicNote, null, tint = Color.White.copy(alpha = 0.35f), modifier = Modifier.size(56.dp))
+            Icon(Icons.Rounded.MusicNote, null, tint = Color.White.copy(alpha = 0.30f), modifier = Modifier.size(44.dp))
             Text(
                 text,
                 color = Color.White.copy(alpha = 0.55f),
-                fontSize = 16.sp,
+                style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.padding(horizontal = 16.dp),
+                modifier = Modifier.padding(horizontal = 20.dp),
             )
         }
     }

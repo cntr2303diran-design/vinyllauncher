@@ -40,6 +40,34 @@ android {
     }
 }
 
+/*
+ * Font (Inter, Instrument Serif, JetBrains Mono — semuanya lisensi OFL) diunduh otomatis
+ * dari repositori google/fonts saat build pertama, lalu disimpan di res/font.
+ */
+val fetchFonts by tasks.registering {
+    val fontDir = file("src/main/res/font")
+    outputs.dir(fontDir)
+    doLast {
+        val base = "https://github.com/google/fonts/raw/main/ofl"
+        val fonts = mapOf(
+            "inter.ttf" to "$base/inter/Inter%5Bopsz,wght%5D.ttf",
+            "instrument_serif.ttf" to "$base/instrumentserif/InstrumentSerif-Regular.ttf",
+            "jetbrains_mono.ttf" to "$base/jetbrainsmono/JetBrainsMono%5Bwght%5D.ttf",
+        )
+        fontDir.mkdirs()
+        fonts.forEach { (name, url) ->
+            val target = File(fontDir, name)
+            if (!target.exists() || target.length() < 10_000) {
+                println("Mengunduh font $name")
+                java.net.URI(url).toURL().openStream().use { input ->
+                    target.outputStream().use { input.copyTo(it) }
+                }
+            }
+        }
+    }
+}
+tasks.named("preBuild") { dependsOn(fetchFonts) }
+
 kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)

@@ -6,17 +6,15 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -24,6 +22,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -38,6 +37,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -47,6 +47,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -57,30 +58,34 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.vinyl.launcher.data.Anchor
 import com.vinyl.launcher.data.ClockType
 import com.vinyl.launcher.data.CoverSettings
 import com.vinyl.launcher.data.VinylStyle
+import com.vinyl.launcher.media.MediaRepository
 import com.vinyl.launcher.media.NowPlaying
 import com.vinyl.launcher.ui.components.BackgroundLayer
 import com.vinyl.launcher.ui.components.BatteryIndicator
 import com.vinyl.launcher.ui.components.ClockView
 import com.vinyl.launcher.ui.components.DateText
-import com.vinyl.launcher.ui.components.SongInfo
+import com.vinyl.launcher.ui.components.NowPlayingCard
+import com.vinyl.launcher.ui.components.ShimmerText
 import com.vinyl.launcher.ui.components.TwoMonthCalendar
 import com.vinyl.launcher.ui.components.VinylDisc
 import com.vinyl.launcher.ui.components.VinylLabel
 import com.vinyl.launcher.ui.components.rememberNow
+import com.vinyl.launcher.ui.components.sheet
 import com.vinyl.launcher.ui.components.timeParts
 import com.vinyl.launcher.ui.settings.CoverStyleControls
-import com.vinyl.launcher.ui.theme.PaperCream
+import com.vinyl.launcher.ui.theme.Accent
 import com.vinyl.launcher.ui.theme.horizontal
 import com.vinyl.launcher.ui.theme.toAlignment
 import com.vinyl.launcher.ui.theme.toColor
@@ -88,12 +93,14 @@ import com.vinyl.launcher.ui.theme.toComposeColor
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.time.LocalDateTime
 import kotlin.math.min
 
-private val EDITOR_WIDTH = 400.dp
+private val EDITOR_WIDTH = 420.dp
+private val EDITOR_HEIGHT = 440.dp
 
-/** Elemen info yang ditempatkan di area kanan (landscape) / bawah (portrait). */
-private enum class CoverItem { CLOCK, DATE, CALENDAR, SONG, BATTERY }
+/** Elemen info yang ditempatkan di area kanan (landscape) / bawah (portrait). Urutan = urutan tumpukan. */
+private enum class CoverItem { DATE, CLOCK, CALENDAR, SONG, BATTERY }
 
 @Composable
 fun CoverScreen(
@@ -107,18 +114,30 @@ fun CoverScreen(
     val editing = draft != null
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val haptics = LocalHapticFeedback.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val now by rememberNow()
 
-    val albumColor = np.dominantColor?.takeIf { np.hasTrack }?.toComposeColor() ?: Color(0xFF2A2A30)
-    val accent = np.accentColor?.takeIf { np.hasTrack }?.toComposeColor() ?: Color(0xFF8A8780)
+    val albumColor = np.dominantColor?.takeIf { np.hasTrack }?.toComposeColor() ?: Color(0xFF26262C)
+    val accent = np.accentColor?.takeIf { np.hasTrack }?.toComposeColor() ?: Accent
 
-    Box(Modifier.fillMaxSize()) {
-        BackgroundLayer(cover.background, albumColor, glow = true)
+    // ---- Geser untuk membuka: SELURUH layar bisa digeser, vinyl ikut bergerak ----
+    val offsetX = remember { Animatable(0f) }
+    var widthPx by remember { mutableIntStateOf(1) }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .onSizeChanged { widthPx = it.width.coerceAtLeast(1) }
+    ) {
+        BackgroundLayer(cover.background, albumColor, art = np.art, swatches = np.swatches, animate = np.isPlaying, dim = 0.42f)
 
         Box(
             Modifier
                 .fillMaxSize()
-                .padding(end = if (editing && landscape) EDITOR_WIDTH else 0.dp, bottom = if (editing && !landscape) 420.dp else 0.dp)
+                .padding(end = if (editing && landscape) EDITOR_WIDTH else 0.dp, bottom = if (editing && !landscape) EDITOR_HEIGHT else 0.dp)
+                // Cegah gestur "kembali" sistem di tepi layar mencuri geseran
+                .systemGestureExclusion()
                 .pointerInput(editing) {
                     if (editing) return@pointerInput
                     detectTapGestures(onLongPress = {
@@ -126,57 +145,83 @@ fun CoverScreen(
                         onRequestEdit()
                     })
                 }
-                .padding(32.dp)
+                .pointerInput(editing) {
+                    if (editing) return@pointerInput
+                    val tracker = VelocityTracker()
+                    detectHorizontalDragGestures(
+                        onDragStart = { tracker.resetTracking() },
+                        onDragEnd = {
+                            val v = tracker.calculateVelocity().x
+                            scope.launch {
+                                val pass = offsetX.value > widthPx * 0.28f || (v > 1800f && offsetX.value > widthPx * 0.06f)
+                                if (pass) {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    offsetX.animateTo(widthPx.toFloat(), tween(280, easing = FastOutSlowInEasing))
+                                    onUnlock { scope.launch { offsetX.animateTo(0f, spring(0.75f, 260f)) } }
+                                } else {
+                                    offsetX.animateTo(0f, spring(0.7f, 320f))
+                                }
+                            }
+                        },
+                        onDragCancel = { scope.launch { offsetX.animateTo(0f, spring(0.7f, 320f)) } },
+                    ) { change, dx ->
+                        change.consume()
+                        tracker.addPosition(change.uptimeMillis, change.position)
+                        scope.launch { offsetX.snapTo((offsetX.value + dx).coerceAtLeast(0f)) }
+                    }
+                }
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .padding(horizontal = 40.dp, vertical = 28.dp)
         ) {
+            val progress = (offsetX.value / widthPx).coerceIn(0f, 1f)
+            // Konten info memudar & sedikit bergeser saat layar digeser
+            val infoAlpha = 1f - (progress * 2.2f).coerceIn(0f, 1f)
             if (landscape) {
                 Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-                    BoxWithConstraints(Modifier.weight(0.46f).fillMaxHeight(), contentAlignment = Alignment.Center) {
-                        CoverVinyl(np, cover, accent, albumColor, min(maxWidth.value, maxHeight.value * 0.9f).dp, editing, onUnlock)
+                    BoxWithConstraints(Modifier.weight(0.47f).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                        CoverVinyl(np, cover, accent, albumColor, min(maxWidth.value * 0.95f, maxHeight.value * 0.86f).dp, now, offsetX.value)
                     }
-                    InfoArea(cover, np, now, accent, Modifier.weight(0.54f).fillMaxHeight().padding(start = 24.dp))
+                    InfoArea(
+                        cover, np, now, accent,
+                        Modifier.weight(0.53f).fillMaxHeight().padding(start = 40.dp)
+                            .graphicsLayer { alpha = infoAlpha; translationX = offsetX.value * 0.35f },
+                    )
                 }
             } else {
                 Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    BoxWithConstraints(Modifier.fillMaxWidth().weight(0.48f), contentAlignment = Alignment.Center) {
-                        CoverVinyl(np, cover, accent, albumColor, min(maxWidth.value * 0.85f, maxHeight.value).dp, editing, onUnlock)
+                    BoxWithConstraints(Modifier.fillMaxWidth().weight(0.46f), contentAlignment = Alignment.Center) {
+                        CoverVinyl(np, cover, accent, albumColor, min(maxWidth.value * 0.82f, maxHeight.value).dp, now, offsetX.value)
                     }
-                    InfoArea(cover, np, now, accent, Modifier.fillMaxWidth().weight(0.52f).padding(top = 24.dp))
+                    InfoArea(
+                        cover, np, now, accent,
+                        Modifier.fillMaxWidth().weight(0.54f).padding(top = 28.dp)
+                            .graphicsLayer { alpha = infoAlpha; translationX = offsetX.value * 0.35f },
+                    )
                 }
             }
 
-            if (!editing) UnlockHint(Modifier.align(Alignment.BottomCenter))
+            if (!editing) {
+                ShimmerText(
+                    "Geser ke kanan untuk membuka",
+                    modifier = Modifier.align(Alignment.BottomCenter).graphicsLayer { alpha = infoAlpha },
+                )
+            }
         }
 
-        // Editor dengan pratinjau langsung
         AnimatedVisibility(
             visible = editing,
             modifier = Modifier.align(if (landscape) Alignment.CenterEnd else Alignment.BottomCenter),
-            enter = if (landscape) slideInHorizontally { it } else slideInVertically { it },
-            exit = if (landscape) slideOutHorizontally { it } else slideOutVertically { it },
+            enter = (if (landscape) slideInHorizontally { it } else slideInVertically { it }) + fadeIn(),
+            exit = (if (landscape) slideOutHorizontally { it } else slideOutVertically { it }) + fadeOut(),
         ) {
             CoverEditorPanel(vm, landscape)
         }
     }
 }
 
-/** Petunjuk "Geser ke kanan untuk membuka" yang berdenyut pelan. */
-@Composable
-private fun UnlockHint(modifier: Modifier) {
-    val pulse by rememberInfiniteTransition(label = "hint").animateFloat(
-        0.35f, 0.8f, infiniteRepeatable(tween(1600), RepeatMode.Reverse), label = "a",
-    )
-    Text(
-        "Geser ke kanan untuk membuka  →",
-        color = PaperCream.copy(alpha = pulse),
-        fontSize = 15.sp,
-        letterSpacing = 1.sp,
-        modifier = modifier,
-    )
-}
-
 /**
- * Vinyl besar berlabel cover album. Berputar saat musik aktif.
- * Geser ke kanan melewati ambang → panggil [onUnlock]; jika dibatalkan, kembali ke posisi semula.
+ * Vinyl besar berlabel cover album; berputar 33⅓ RPM saat musik aktif.
+ * Ikut bergeser & menggelinding saat layar digeser ke kanan.
  */
 @Composable
 private fun CoverVinyl(
@@ -185,17 +230,13 @@ private fun CoverVinyl(
     accent: Color,
     discTint: Color,
     size: Dp,
-    editing: Boolean,
-    onUnlock: (onCancelled: () -> Unit) -> Unit,
+    now: LocalDateTime,
+    dragOffset: Float,
 ) {
-    val offsetX = remember { Animatable(0f) }
-    val scope = rememberCoroutineScope()
     var angle by remember { mutableFloatStateOf(0f) }
     var velocity by remember { mutableFloatStateOf(0f) }
     val playing = np.isPlaying && np.hasTrack
-    val now by rememberNow()
 
-    // Putaran 33⅓ RPM dengan akselerasi/deselerasi halus
     LaunchedEffect(playing) {
         var last = 0L
         val target = if (playing) 200f else 0f
@@ -210,56 +251,36 @@ private fun CoverVinyl(
         }
     }
 
-    // Jam melingkar ditulis di tepi vinyl
     val rimText = if (cover.clock.visible && cover.clock.type == ClockType.CIRCULAR) {
         val (hm, ampm) = timeParts(now, cover.clock.use24h)
         hm + (ampm?.let { " $it" } ?: "")
     } else null
 
-    BoxWithConstraints(Modifier.size(size)) {
-        val widthPx = constraints.maxWidth.toFloat()
-        VinylDisc(
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    translationX = offsetX.value
-                    alpha = 1f - (offsetX.value / (widthPx * 1.6f)).coerceIn(0f, 0.7f)
-                }
-                .pointerInput(editing) {
-                    if (editing) return@pointerInput
-                    detectHorizontalDragGestures(
-                        onDragEnd = {
-                            scope.launch {
-                                if (offsetX.value > widthPx * 0.35f) {
-                                    offsetX.animateTo(widthPx * 1.2f, tween(260))
-                                    onUnlock { scope.launch { offsetX.animateTo(0f, spring(0.7f, 250f)) } }
-                                } else offsetX.animateTo(0f, spring(0.6f, 300f))
-                            }
-                        },
-                        onDragCancel = { scope.launch { offsetX.animateTo(0f) } },
-                    ) { change, dx ->
-                        change.consume()
-                        scope.launch { offsetX.snapTo((offsetX.value + dx).coerceAtLeast(0f)) }
-                    }
-                },
-            rotation = angle + offsetX.value * 0.25f, // ikut menggelinding saat digeser
-            style = VinylStyle.CLASSIC,
-            labelColor = accent,
-            discTint = discTint,
-            label = VinylLabel.Art(if (np.hasTrack) np.art else null),
-            rimText = rimText,
-            rimTextColor = cover.clock.color.toColor(),
-        )
-    }
+    VinylDisc(
+        modifier = Modifier
+            .size(size)
+            .graphicsLayer {
+                translationX = dragOffset
+                // Vinyl "menggelinding": sudut tambahan sebanding jarak geser
+                alpha = 1f - (dragOffset / (size.toPx() * 2.2f)).coerceIn(0f, 0.8f)
+            },
+        rotation = angle + dragOffset / (size.value * 3.1416f) * 360f * 0.35f,
+        style = VinylStyle.CLASSIC,
+        labelColor = accent,
+        discTint = discTint,
+        label = VinylLabel.Art(if (np.hasTrack) np.art else null),
+        rimText = rimText,
+        rimTextColor = cover.clock.color.toColor(),
+    )
 }
 
 @Composable
-private fun InfoArea(cover: CoverSettings, np: NowPlaying, now: java.time.LocalDateTime, accent: Color, modifier: Modifier) {
+private fun InfoArea(cover: CoverSettings, np: NowPlaying, now: LocalDateTime, accent: Color, modifier: Modifier) {
+    val context = LocalContext.current
     val clockOnRim = cover.clock.type == ClockType.CIRCULAR
-    // Kelompokkan elemen per posisi agar yang berada di posisi sama tersusun rapi
     val items = buildList {
-        if (cover.clock.visible && !clockOnRim) add(CoverItem.CLOCK to cover.clock.anchor)
         if (cover.date.visible) add(CoverItem.DATE to cover.date.anchor)
+        if (cover.clock.visible && !clockOnRim) add(CoverItem.CLOCK to cover.clock.anchor)
         if (cover.calendar.visible) add(CoverItem.CALENDAR to cover.calendar.anchor)
         if (cover.songInfo.visible) add(CoverItem.SONG to cover.songInfo.anchor)
         if (cover.battery.visible) add(CoverItem.BATTERY to cover.battery.anchor)
@@ -267,31 +288,39 @@ private fun InfoArea(cover: CoverSettings, np: NowPlaying, now: java.time.LocalD
 
     val textColor = cover.clock.color.toColor()
     BoxWithConstraints(modifier) {
-        val cell = min(30f, maxWidth.value / 16f).dp
+        val cell = min(32f, maxWidth.value / 17f).dp
+        val clockBase = min(110f, maxWidth.value / 4.2f).dp
         items.forEach { (anchor: Anchor, list) ->
             Column(
                 Modifier.align(anchor.toAlignment()),
                 horizontalAlignment = anchor.horizontal(),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                list.forEach { item ->
+                list.forEachIndexed { i, item ->
+                    if (i > 0 && item != CoverItem.CLOCK) Spacer(Modifier.height(14.dp))
                     when (item) {
+                        CoverItem.DATE -> DateText(now, cover.clock, baseSize = clockBase, modifier = Modifier.padding(start = 4.dp))
                         CoverItem.CLOCK -> ClockView(
                             settings = cover.clock.copy(showDate = false),
                             now = now,
-                            baseSize = 96.dp,
+                            baseSize = clockBase,
                             horizontalAlignment = anchor.horizontal(),
                         )
-                        CoverItem.DATE -> DateText(now, cover.clock, baseSize = 96.dp)
                         CoverItem.CALENDAR -> TwoMonthCalendar(
                             today = LocalDate.from(now),
                             showEvents = cover.calendarEvents,
                             color = textColor,
                             accent = accent,
                             cell = cell,
-                            modifier = Modifier.padding(top = 12.dp),
+                            card = true,
                         )
-                        CoverItem.SONG -> SongInfo(np.title, np.artist, textColor, alignEnd = anchor.horizontal() == Alignment.End)
+                        CoverItem.SONG -> NowPlayingCard(
+                            np = np,
+                            onTogglePlay = { MediaRepository.togglePlayPause() },
+                            onNext = { MediaRepository.next() },
+                            onPrevious = { MediaRepository.previous() },
+                            onOpen = { MediaRepository.openMusicApp(context) },
+                        )
                         CoverItem.BATTERY -> BatteryIndicator(textColor)
                     }
                 }
@@ -307,18 +336,16 @@ private fun CoverEditorPanel(vm: CoverViewModel, landscape: Boolean) {
     val calendarPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (!granted) vm.updateDraft(d.copy(calendarEvents = false))
     }
+    val shape = if (landscape) RoundedCornerShape(topStart = 32.dp, bottomStart = 32.dp) else RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)
     Column(
-        (if (landscape) Modifier.width(EDITOR_WIDTH).fillMaxHeight() else Modifier.fillMaxWidth().height(420.dp))
-            .background(
-                MaterialTheme.colorScheme.surface.copy(alpha = 0.97f),
-                if (landscape) RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp) else RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-            )
+        (if (landscape) Modifier.width(EDITOR_WIDTH).fillMaxHeight() else Modifier.fillMaxWidth().height(EDITOR_HEIGHT))
+            .sheet(shape)
             .windowInsetsPadding(
                 WindowInsets.safeDrawing.only(if (landscape) WindowInsetsSides.Vertical + WindowInsetsSides.End else WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
             )
     ) {
-        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Edit layar kunci", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+        Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 14.dp, top = 18.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Layar kunci", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
             TextButton(onClick = vm::cancelEdit) { Text("Batal") }
             Button(onClick = vm::saveEdit) { Text("Simpan") }
         }
@@ -328,7 +355,7 @@ private fun CoverEditorPanel(vm: CoverViewModel, landscape: Boolean) {
                 onChange = vm::updateDraft,
                 onRequestCalendarPermission = { calendarPermission.launch(Manifest.permission.READ_CALENDAR) },
             )
-            Box(Modifier.height(24.dp))
+            Box(Modifier.height(28.dp))
         }
     }
 }

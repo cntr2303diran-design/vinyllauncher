@@ -1,8 +1,6 @@
 package com.vinyl.launcher.ui.components
 
 import android.graphics.BitmapFactory
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -46,38 +44,21 @@ fun rememberFileImage(path: String?): ImageBitmap? {
 
 /**
  * Latar home screen / layar kunci.
- * @param albumColor warna dominan cover (sudah dianimasikan oleh pemanggil atau di sini).
- * @param glow jika true (layar kunci), mode ALBUM menjadi latar gelap dengan cahaya lembut warna cover.
+ * Mode ALBUM memakai [AmbientBackdrop] (cover di-blur + gumpalan warna bergerak ala Apple Music).
  */
 @Composable
 fun BackgroundLayer(
     settings: BackgroundSettings,
     albumColor: Color,
     modifier: Modifier = Modifier,
-    glow: Boolean = false,
+    art: ImageBitmap? = null,
+    swatches: List<Int> = emptyList(),
+    animate: Boolean = false,
+    dim: Float = 0.38f,
 ) {
-    // Transisi halus saat lagu berganti
-    val animatedAlbum by animateColorAsState(albumColor, tween(900), label = "bg")
     Box(modifier.fillMaxSize()) {
         when (settings.type) {
-            BackgroundType.ALBUM -> {
-                if (glow) {
-                    Box(
-                        Modifier.fillMaxSize()
-                            .background(Color(0xFF09090A))
-                            .background(
-                                Brush.radialGradient(
-                                    0f to animatedAlbum.copy(alpha = 0.55f),
-                                    0.55f to animatedAlbum.copy(alpha = 0.18f),
-                                    1f to Color.Transparent,
-                                    radius = 1600f,
-                                )
-                            )
-                    )
-                } else {
-                    Box(Modifier.fillMaxSize().background(animatedAlbum))
-                }
-            }
+            BackgroundType.ALBUM -> AmbientBackdrop(art, swatches, albumColor, animate, dim = dim)
             BackgroundType.SOLID -> Box(Modifier.fillMaxSize().background(settings.solidColor.toColor()))
             BackgroundType.GRADIENT -> Box(
                 Modifier.fillMaxSize().background(
@@ -89,8 +70,7 @@ fun BackgroundLayer(
                 Box(Modifier.fillMaxSize().background(Color(0xFF0E0E10)))
                 if (img != null) {
                     Image(img, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                    // Redupkan sedikit agar jam & turntable tetap menonjol
-                    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.25f)))
+                    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.28f)))
                 }
             }
         }

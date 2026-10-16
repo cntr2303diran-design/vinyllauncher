@@ -42,6 +42,11 @@ Aplikasi pertama kali membuka **onboarding**:
 
 Ikon *Vinyl Launcher* di app drawer membuka halaman **Pengaturan** (semua opsi + reset ke default).
 
+## Unduh APK tanpa laptop
+
+Setiap perubahan di branch `main` otomatis di-build oleh GitHub Actions. APK terbaru selalu tersedia di:
+`https://github.com/cntr2303diran-design/vinyllauncher/releases/download/latest/VinylLauncher.apk`
+
 ## Catatan teknis
 
 - **Arsitektur:** MVVM — `data/` (DataStore, LauncherApps, kalender, cuaca), `media/` (MediaSession), `service/`, `ui/` (layar + ViewModel), `ui/components/` (komponen Canvas).
@@ -49,6 +54,7 @@ Ikon *Vinyl Launcher* di app drawer membuka halaman **Pengaturan** (semua opsi +
 - **Grafis:** vinyl, alur, kilap, label melingkar, tonearm, jam analog/melingkar, dan ikon dock digambar dengan Compose Canvas — tajam di semua ukuran. Loop putaran memakai `withFrameNanos` dan berhenti sendiri saat vinyl diam (hemat baterai).
 - **Rotasi layar:** activity menangani `configChanges` sendiri; tata letak dihitung ulang dari `BoxWithConstraints`, posisi widget disimpan sebagai fraksi layar.
 - **Layar kunci:** `CoverActivity` memakai `setShowWhenLocked` + `setTurnScreenOn`; keamanan tetap ditangani PIN/sandi/biometrik sistem via `KeyguardManager.requestDismissKeyguard`. Activity dibuka oleh `CoverService` (foreground service ringan) saat layar mati. Android 10+ membatasi pembukaan activity dari latar belakang, karena itu izin *Tampilkan di atas aplikasi lain* diperlukan.
+- **Font:** Inter, Instrument Serif, dan JetBrains Mono (lisensi OFL) diunduh otomatis dari repositori google/fonts saat build pertama (task Gradle `fetchFonts`), jadi build pertama butuh internet.
 - **Cuaca:** Open-Meteo (gratis, tanpa API key), lokasi diatur manual di Pengaturan → Cuaca; di-cache 30 menit.
 - **Gestur notifikasi/kunci layar:** memakai layanan aksesibilitas bila aktif; notifikasi punya cadangan lewat `StatusBarManager` (API tersembunyi, berfungsi di sebagian besar perangkat).
 

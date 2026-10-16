@@ -86,25 +86,39 @@ private fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
                 .verticalScroll(rememberScrollState()).padding(horizontal = 28.dp, vertical = 20.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Pengaturan", fontSize = 32.sp, modifier = Modifier.weight(1f))
+                Spacer(Modifier.weight(1f))
                 TextButton(onClick = onBack) { Text("Tutup") }
             }
+            // Judul besar ala One UI: area atas lega, mudah dijangkau
+            Text(
+                "Pengaturan",
+                style = MaterialTheme.typography.displayMedium,
+                modifier = Modifier.padding(start = 8.dp, top = 24.dp, bottom = 8.dp),
+            )
+            Text(
+                "Vinyl Launcher",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 10.dp, bottom = 12.dp),
+            )
 
             SectionTitle("Izin & status")
             PermissionSteps(s.coverEnabled) { on -> vm.update { it.copy(coverEnabled = on) } }
 
             // ---------- Home ----------
-            Group("Home screen") {
+            Group("Home screen", carded = false) {
                 HomeStyleControls(s.home) { h -> vm.update { it.copy(home = h) } }
             }
 
             // ---------- Layar kunci ----------
-            Group("Layar kunci vinyl") {
+            Group("Layar kunci vinyl", carded = false) {
+                ControlCard {
                 SwitchRow(
                     "Aktifkan layar kunci vinyl", s.coverEnabled, { on -> vm.update { it.copy(coverEnabled = on) } },
                     subtitle = "Muncul di atas layar kunci sistem setiap layar dinyalakan",
                 )
-                OutlinedButton(onClick = { CoverActivity.show(context) }, modifier = Modifier.padding(top = 4.dp)) { Text("Pratinjau layar kunci") }
+                TextButton(onClick = { CoverActivity.show(context) }) { Text("Pratinjau layar kunci") }
+                }
                 CoverStyleControls(
                     s.cover,
                     onChange = { c -> vm.update { it.copy(cover = c) } },
@@ -232,13 +246,18 @@ private fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
     }
 }
 
-/** Kelompok pengaturan dengan judul & pemisah. */
+/** Kelompok pengaturan: judul besar + (opsional) kartu membulat ala One UI. */
 @Composable
-private fun Group(title: String, content: @Composable () -> Unit) {
-    Spacer(Modifier.height(12.dp))
-    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
-    Text(title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 20.dp, bottom = 4.dp))
-    Column(
-        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(20.dp)).padding(horizontal = 18.dp, vertical = 8.dp)
-    ) { content() }
+private fun Group(title: String, carded: Boolean = true, content: @Composable () -> Unit) {
+    Text(
+        title,
+        style = MaterialTheme.typography.headlineMedium,
+        modifier = Modifier.padding(start = 8.dp, top = 40.dp, bottom = 4.dp),
+    )
+    if (carded) {
+        Spacer(Modifier.height(10.dp))
+        ControlCard { content() }
+    } else {
+        Column { content() }
+    }
 }

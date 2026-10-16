@@ -5,6 +5,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -74,83 +75,120 @@ data class TonearmGeometry(val pivot: Offset, val length: Float, val discCenter:
     }
 }
 
-private data class ArmPalette(val tube: List<Color>, val base: Color, val accent: Color, val head: Color)
+private data class ArmPalette(
+    val chrome: List<Color>,   // gradasi batang (gelap-terang-gelap) untuk efek logam silinder
+    val brushed: List<Color>,  // gradasi sapuan untuk dudukan logam "brushed"
+    val dark: Color,
+    val accent: Color,
+)
 
 private fun paletteFor(style: TonearmStyle) = when (style) {
     TonearmStyle.SILVER -> ArmPalette(
-        listOf(Color(0xFF8E9096), Color(0xFFF1F2F4), Color(0xFFA9ABB1)),
-        Color(0xFF1A1A1D), Color(0xFFCFD1D6), Color(0xFF121214),
+        chrome = listOf(Color(0xFF6E7076), Color(0xFFE9EAEE), Color(0xFFFFFFFF), Color(0xFFB9BBC1), Color(0xFF75777D)),
+        brushed = listOf(Color(0xFFB7B9BE), Color(0xFFE8E9EC), Color(0xFF9A9CA2), Color(0xFFDADBDF), Color(0xFFA5A7AC), Color(0xFFB7B9BE)),
+        dark = Color(0xFF161618), accent = Color(0xFFE6E7EA),
     )
     TonearmStyle.BLACK -> ArmPalette(
-        listOf(Color(0xFF111113), Color(0xFF4A4A50), Color(0xFF1C1C1F)),
-        Color(0xFF0D0D0F), Color(0xFF6B6B72), Color(0xFF0A0A0B),
+        chrome = listOf(Color(0xFF0C0C0E), Color(0xFF3E3E44), Color(0xFF5A5A61), Color(0xFF26262A), Color(0xFF0E0E10)),
+        brushed = listOf(Color(0xFF1A1A1D), Color(0xFF34343A), Color(0xFF151517), Color(0xFF2C2C31), Color(0xFF18181B), Color(0xFF1A1A1D)),
+        dark = Color(0xFF070708), accent = Color(0xFF8A8A92),
     )
     TonearmStyle.GOLD -> ArmPalette(
-        listOf(Color(0xFF8C6A28), Color(0xFFF4D98B), Color(0xFFB08A3C)),
-        Color(0xFF1A1610), Color(0xFFE6C36A), Color(0xFF16120B),
+        chrome = listOf(Color(0xFF7A5A1E), Color(0xFFE9C978), Color(0xFFFFF0C4), Color(0xFFC9A04A), Color(0xFF7E5E22)),
+        brushed = listOf(Color(0xFFC9A253), Color(0xFFEED59A), Color(0xFFAD8738), Color(0xFFE2C47F), Color(0xFFB8913F), Color(0xFFC9A253)),
+        dark = Color(0xFF17130C), accent = Color(0xFFF3DC9E),
     )
 }
 
 /**
- * Menggambar tonearm perak-hitam: dudukan, pemberat, batang, headshell & jarum.
- * @param lift 0 = jarum di piringan, 1 = terangkat (bayangan lebih jauh & headshell sedikit membesar).
+ * Menggambar tonearm ramping: dudukan logam brushed, pemberat bergerigi,
+ * batang krom dengan lekuk-S halus, headshell bersudut, dan cartridge.
+ * @param lift 0 = jarum di piringan, 1 = terangkat (bayangan lebih jauh & lebih lembut).
  */
 fun DrawScope.drawTonearm(geo: TonearmGeometry, theta: Float, lift: Float, style: TonearmStyle) {
     val pal = paletteFor(style)
     val r = geo.discRadius
-    val deg = Math.toDegrees(theta.toDouble()).toFloat()
-    val tubeW = r * 0.035f
-    val shadowOffset = Offset(r * (0.02f + 0.05f * lift), r * (0.03f + 0.07f * lift))
-
-    // Dudukan (plinth) — tidak ikut berputar
-    drawCircle(Color.Black.copy(alpha = 0.35f), r * 0.15f, geo.pivot + Offset(r * 0.02f, r * 0.03f))
-    drawCircle(pal.base, r * 0.15f, geo.pivot)
-    drawCircle(pal.accent.copy(alpha = 0.25f), r * 0.15f, geo.pivot, style = Stroke(r * 0.008f))
-    drawCircle(pal.base, r * 0.10f, geo.pivot)
-    drawCircle(
-        Brush.radialGradient(pal.tube, center = geo.pivot - Offset(r * 0.02f, r * 0.02f), radius = r * 0.08f),
-        r * 0.07f, geo.pivot,
-    )
-
-    // Lengan digambar vertikal (ke bawah) lalu dirotasi sebesar θ di sekitar pivot
+    val p = geo.pivot
     val len = geo.length
-    fun armShapes(shadow: Boolean) {
-        val o = if (shadow) shadowOffset else Offset.Zero
-        val p = geo.pivot + o
-        val tubeBrush = if (shadow) Brush.linearGradient(listOf(Color.Black.copy(alpha = 0.35f), Color.Black.copy(alpha = 0.35f)))
-        else Brush.horizontalGradient(pal.tube, startX = p.x - tubeW, endX = p.x + tubeW)
-        rotate(deg, p) {
-            // Pemberat di belakang pivot
-            drawRoundRect(
-                brush = if (shadow) tubeBrush else Brush.horizontalGradient(
-                    listOf(pal.base, pal.accent.copy(alpha = 0.5f), pal.base), startX = p.x - r * 0.07f, endX = p.x + r * 0.07f,
-                ),
-                topLeft = Offset(p.x - r * 0.065f, p.y - len * 0.26f),
-                size = Size(r * 0.13f, len * 0.12f),
-                cornerRadius = CornerRadius(r * 0.02f),
-            )
-            // Batang
-            drawLine(tubeBrush, p - Offset(0f, len * 0.15f), p + Offset(0f, len * 0.86f), tubeW, StrokeCap.Round)
-            // Headshell (sedikit membesar saat terangkat = ilusi lebih dekat ke mata)
-            val hs = 1f + 0.06f * lift
-            val hw = r * 0.085f * hs
-            val hh = len * 0.14f * hs
-            val headTop = p + Offset(-hw / 2f, len * 0.86f)
-            drawRoundRect(
-                color = if (shadow) Color.Black.copy(alpha = 0.35f) else pal.head,
-                topLeft = headTop,
-                size = Size(hw, hh),
-                cornerRadius = CornerRadius(r * 0.012f),
-            )
-            if (!shadow) {
-                // Garis aksen & pengangkat jari
-                drawLine(pal.accent, headTop + Offset(hw * 0.2f, hh * 0.2f), headTop + Offset(hw * 0.2f, hh * 0.85f), r * 0.006f)
-                drawLine(pal.accent, headTop + Offset(hw, hh * 0.25f), headTop + Offset(hw + r * 0.05f, hh * 0.1f), r * 0.012f, StrokeCap.Round)
-                // Cartridge & jarum
-                drawCircle(pal.accent, r * 0.009f, p + Offset(0f, len * 0.97f))
+    val deg = Math.toDegrees(theta.toDouble()).toFloat()
+    val tubeW = r * 0.026f
+
+    // ---------- Dudukan (tidak berputar) ----------
+    drawCircle(Color.Black.copy(alpha = 0.35f), r * 0.175f, p + Offset(r * 0.015f, r * 0.03f))
+    drawCircle(Brush.sweepGradient(pal.brushed, center = p), r * 0.17f, p)
+    drawCircle(Color.Black.copy(alpha = 0.25f), r * 0.17f, p, style = Stroke(r * 0.006f))
+    drawCircle(pal.dark, r * 0.112f, p)
+    drawCircle(Brush.sweepGradient(pal.brushed.reversed(), center = p), r * 0.085f, p)
+    drawCircle(Color.White.copy(alpha = 0.25f), r * 0.085f, p, style = Stroke(r * 0.004f))
+
+    // Lekuk-S batang (koordinat lokal: lengan mengarah ke +y)
+    fun tubePath(o: Offset) = Path().apply {
+        moveTo(p.x + o.x, p.y + o.y - len * 0.12f)
+        cubicTo(
+            p.x + o.x - len * 0.05f, p.y + o.y + len * 0.30f,
+            p.x + o.x + len * 0.045f, p.y + o.y + len * 0.58f,
+            p.x + o.x, p.y + o.y + len * 0.84f,
+        )
+    }
+
+    fun headshell(o: Offset, shadow: Boolean) {
+        // Headshell sedikit bersudut terhadap batang (offset angle ala tonearm sungguhan)
+        val hp = p + o + Offset(0f, len * 0.84f)
+        rotate(14f, hp) {
+            val hw = r * 0.075f * (1f + 0.05f * lift)
+            val hh = len * 0.17f * (1f + 0.05f * lift)
+            val path = Path().apply {
+                moveTo(hp.x - hw * 0.35f, hp.y)
+                lineTo(hp.x + hw * 0.35f, hp.y)
+                lineTo(hp.x + hw * 0.5f, hp.y + hh)
+                lineTo(hp.x - hw * 0.5f, hp.y + hh)
+                close()
+            }
+            if (shadow) {
+                drawPath(path, Color.Black.copy(alpha = 0.32f - 0.12f * lift))
+            } else {
+                drawPath(path, Brush.horizontalGradient(pal.chrome, startX = hp.x - hw * 0.5f, endX = hp.x + hw * 0.5f))
+                // cartridge gelap
+                drawRect(pal.dark, Offset(hp.x - hw * 0.36f, hp.y + hh * 0.52f), Size(hw * 0.72f, hh * 0.40f))
+                drawRect(pal.accent.copy(alpha = 0.7f), Offset(hp.x - hw * 0.36f, hp.y + hh * 0.52f), Size(hw * 0.72f, hh * 0.04f))
+                // pengangkat jari
+                drawLine(
+                    Brush.horizontalGradient(pal.chrome),
+                    Offset(hp.x + hw * 0.42f, hp.y + hh * 0.18f), Offset(hp.x + hw * 1.15f, hp.y + hh * 0.05f),
+                    r * 0.011f, StrokeCap.Round,
+                )
             }
         }
     }
-    armShapes(shadow = true)
-    armShapes(shadow = false)
+
+    val shadowOffset = Offset(r * (0.02f + 0.06f * lift), r * (0.03f + 0.08f * lift))
+    // ---------- Bayangan ----------
+    rotate(deg, p) {
+        drawPath(tubePath(shadowOffset), Color.Black.copy(alpha = 0.30f - 0.10f * lift), style = Stroke(tubeW, cap = StrokeCap.Round))
+        headshell(shadowOffset, shadow = true)
+    }
+    // ---------- Lengan ----------
+    rotate(deg, p) {
+        // Pemberat bergerigi di belakang pivot
+        val cwTop = p.y - len * 0.30f
+        val cwH = len * 0.15f
+        val cwW = r * 0.12f
+        drawRoundRect(
+            Brush.horizontalGradient(pal.chrome, startX = p.x - cwW / 2, endX = p.x + cwW / 2),
+            topLeft = Offset(p.x - cwW / 2, cwTop), size = Size(cwW, cwH), cornerRadius = CornerRadius(r * 0.018f),
+        )
+        for (i in 1..4) {
+            val y = cwTop + cwH * i / 5f
+            drawLine(Color.Black.copy(alpha = 0.22f), Offset(p.x - cwW / 2, y), Offset(p.x + cwW / 2, y), r * 0.003f)
+        }
+        // Batang krom
+        drawPath(
+            tubePath(Offset.Zero),
+            Brush.horizontalGradient(pal.chrome, startX = p.x - tubeW * 1.6f, endX = p.x + tubeW * 1.6f),
+            style = Stroke(tubeW, cap = StrokeCap.Round),
+        )
+        headshell(Offset.Zero, shadow = false)
+    }
+    // Tutup bearing di atas lengan
+    drawCircle(Brush.radialGradient(pal.chrome.take(3), center = p - Offset(r * 0.015f, r * 0.015f), radius = r * 0.05f), r * 0.04f, p)
 }

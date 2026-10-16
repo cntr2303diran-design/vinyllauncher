@@ -56,6 +56,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vinyl.launcher.data.AppInfo
 import com.vinyl.launcher.ui.theme.PaperCream
+import com.vinyl.launcher.ui.components.AmbientBackdrop
+import com.vinyl.launcher.ui.components.glass
+import androidx.compose.material3.MaterialTheme
 
 /**
  * App drawer: grid abjad dengan pencarian di atas.
@@ -65,6 +68,7 @@ import com.vinyl.launcher.ui.theme.PaperCream
 fun AppDrawer(
     apps: List<AppInfo>,
     tint: Color,
+    np: com.vinyl.launcher.media.NowPlaying,
     dockEnabled: Boolean,
     dockKeys: List<String>,
     onLaunch: (AppInfo) -> Unit,
@@ -96,14 +100,10 @@ fun AppDrawer(
         if (query.isBlank()) apps else apps.filter { it.label.contains(query.trim(), ignoreCase = true) }
     }
 
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(tint.copy(alpha = 0.92f))
-            .background(Color.Black.copy(alpha = 0.55f))
-            .windowInsetsPadding(WindowInsets.safeDrawing)
-    ) {
-        Column(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize()) {
+        // Latar ala App Library iOS: ambient cover yang lebih gelap
+        AmbientBackdrop(np.art.takeIf { np.hasTrack }, np.swatches, tint, animate = false, dim = 0.62f)
+        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             // Pegangan + kolom pencarian (juga bisa ditarik ke bawah untuk menutup)
             Column(
                 Modifier
@@ -117,13 +117,19 @@ fun AppDrawer(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Box(
-                    Modifier.padding(top = 10.dp).size(width = 44.dp, height = 4.dp)
-                        .background(PaperCream.copy(alpha = 0.35f), RoundedCornerShape(50))
+                    Modifier.padding(top = 10.dp).size(width = 40.dp, height = 5.dp)
+                        .background(PaperCream.copy(alpha = 0.3f), RoundedCornerShape(50))
                 )
-                SearchField(query, { query = it }, Modifier.padding(top = 18.dp, bottom = 12.dp).widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 24.dp))
+                Text(
+                    "Aplikasi",
+                    style = MaterialTheme.typography.displaySmall,
+                    color = PaperCream,
+                    modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth().padding(start = 36.dp, top = 22.dp),
+                )
+                SearchField(query, { query = it }, Modifier.padding(top = 16.dp, bottom = 14.dp).widthIn(max = 640.dp).fillMaxWidth().padding(horizontal = 32.dp))
             }
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 104.dp),
+                columns = GridCells.Adaptive(minSize = 112.dp),
                 state = gridState,
                 contentPadding = PaddingValues(horizontal = 32.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -152,8 +158,8 @@ fun AppDrawer(
 private fun SearchField(value: String, onChange: (String) -> Unit, modifier: Modifier) {
     Box(
         modifier
-            .background(Color.White.copy(alpha = 0.10f), RoundedCornerShape(50))
-            .padding(horizontal = 18.dp, vertical = 12.dp),
+            .glass(RoundedCornerShape(50), fillAlpha = 0.12f)
+            .padding(horizontal = 18.dp, vertical = 13.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
         androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
@@ -198,12 +204,13 @@ private fun AppTile(
                 .padding(vertical = 10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Image(app.icon, contentDescription = null, modifier = Modifier.size(56.dp))
-            Spacer(Modifier.height(8.dp))
+            Image(app.icon, contentDescription = null, modifier = Modifier.size(64.dp))
+            Spacer(Modifier.height(9.dp))
             Text(
                 app.label,
-                color = PaperCream,
+                color = PaperCream.copy(alpha = 0.92f),
                 fontSize = 13.sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,
