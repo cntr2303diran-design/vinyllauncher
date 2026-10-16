@@ -82,7 +82,11 @@ import com.vinyl.launcher.ui.components.TURNTABLE_ASPECT
 import com.vinyl.launcher.ui.components.Turntable
 import com.vinyl.launcher.ui.components.TurntableStyle
 import com.vinyl.launcher.ui.components.TwoMonthCalendar
-import com.vinyl.launcher.ui.components.VinylDock
+import com.vinyl.launcher.ui.components.LyricsLines
+import com.vinyl.launcher.ui.components.rememberLyrics
+import com.vinyl.launcher.ui.crate.CrateSheet
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import com.vinyl.launcher.ui.components.WeatherWidget
 import com.vinyl.launcher.ui.components.rememberNow
 import com.vinyl.launcher.ui.drawer.AppDrawer
@@ -108,7 +112,9 @@ fun HomeScreen(vm: HomeViewModel) {
     val drawerOpen by vm.drawerOpen.collectAsStateWithLifecycle()
     val visibleApps by vm.visibleApps.collectAsStateWithLifecycle()
     val allApps by vm.allApps.collectAsStateWithLifecycle()
-    val dockApps by vm.dockApps.collectAsStateWithLifecycle()
+    val crateOpen by vm.crateOpen.collectAsStateWithLifecycle()
+    val queue by vm.queue.collectAsStateWithLifecycle()
+    val history by vm.history.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
     val editing = draft != null
@@ -123,6 +129,7 @@ fun HomeScreen(vm: HomeViewModel) {
     // "kembali" (predictive back) ke Home… yang adalah launcher itu sendiri → layar berkedip/glitch.
     BackHandler(enabled = true) {
         when {
+            crateOpen -> vm.closeCrate()
             drawerOpen -> vm.closeDrawer()
             editing -> vm.cancelEdit()
             else -> Unit // sudah di Home: abaikan
@@ -130,7 +137,6 @@ fun HomeScreen(vm: HomeViewModel) {
     }
 
     val gestures by rememberUpdatedState(settings.gestures)
-    var dockReplaceIndex by remember { mutableIntStateOf(-1) }
 
     Box(Modifier.fillMaxSize()) {
         BackgroundLayer(home.background, bgColor, art = np.art.takeIf { np.hasTrack }, swatches = np.swatches, animate = np.isPlaying)
@@ -147,7 +153,7 @@ fun HomeScreen(vm: HomeViewModel) {
                 .pointerInput(editing) {
                     if (editing) return@pointerInput
                     detectTapGestures(
-                        onDoubleTap = { SystemActions.perform(context, gestures.doubleTap) { vm.openDrawer() } },
+                        onDoubleTap = { SystemActions.perform(context, gestures.doubleTap, vm::openCrate) { vm.openDrawer() } },
                         onLongPress = {
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                             vm.startEdit()
@@ -161,12 +167,23 @@ fun HomeScreen(vm: HomeViewModel) {
                         onDragStart = { total = 0f },
                         onDragEnd = {
                             when {
-                                total < -120f -> SystemActions.perform(context, gestures.swipeUp) { vm.openDrawer() }
-                                total > 120f -> SystemActions.perform(context, gestures.swipeDown) { vm.openDrawer() }
+                                total < -120f -> SystemActions.perform(context, gestures.swipeUp, vm::openCrate) { vm.openDrawer() }
+                                total > 120f -> SystemActions.perform(context, gestures.swipeDown, vm::openCrate) { vm.openDrawer() }
                             }
                         },
                     ) { change, dy -> change.consume(); total += dy }
                 }
+                .pointerInput(editing) {
+                    if (editing) return@pointerInput
+                    // Geser ke kiri → buka rak piringan (antrean & koleksi)
+                    var total = 0f
+                    detectHorizontalDragGestures(
+                        onDragStart = { total = 0f },
+                        onDragEnd = { if (total < -160f) vm.openCrate() },
+                    ) { change, dx -> change.consume(); total += dx }
+                }
+                // Sisakan ruang untuk Taskbar Vinyl di bawah
+                .padding(bottom = if (settings.dock.enabled && !editing) 76.dp else 0.dp)
         ) {
             HomeContent(
                 home = home,
@@ -179,16 +196,6 @@ fun HomeScreen(vm: HomeViewModel) {
                 vm = vm,
             )
 
-            // Dock vinyl cadangan (tanpa panel latar)
-            if (settings.dock.enabled && dockApps.isNotEmpty() && !editing) {
-                VinylDock(
-                    apps = dockApps,
-                    onLaunch = { vm.launch(it) },
-                    onReplace = { dockReplaceIndex = it },
-                    onRemove = { vm.removeDock(it) },
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp),
-                )
-            }
         }
 
         // App drawer
@@ -212,6 +219,18 @@ fun HomeScreen(vm: HomeViewModel) {
             )
         }
 
+        // Rak piringan
+        AnimatedVisibility(
+            visible = crateOpen,
+            enter = slideInHorizontally(tween(340)) { it / 3 } + fadeIn(tween(260)),
+            exit = slideOutHorizontally(tween(260)) { it / 3 } + fadeOut(tween(200)),
+        ) {
+            CrateSheet(
+                np = np, queue = queue, history = history, fallback = bgColor,
+                onClose = vm::closeCrate, onClearHistory = vm::clearHistory,
+            )
+        }
+
         // Panel editor (kanan di landscape, bawah di portrait)
         AnimatedVisibility(
             visible = editing,
@@ -223,11 +242,6 @@ fun HomeScreen(vm: HomeViewModel) {
         }
     }
 
-    if (dockReplaceIndex >= 0) {
-        AppPickerDialog(visibleApps, "Ganti aplikasi dock", onDismiss = { dockReplaceIndex = -1 }) {
-            vm.replaceDock(dockReplaceIndex, it); dockReplaceIndex = -1
-        }
-    }
 }
 
 /** Jam, turntable & widget. Dipisah agar mudah dibaca. */
@@ -249,7 +263,7 @@ private fun HomeContent(
 
         // ----- Turntable (+ info lagu di bawahnya, ala Apple Music) -----
         val showInfo = home.trackInfoVisible
-        val heightShare = if (showInfo) 0.66f else 0.80f
+        val heightShare = if (showInfo) (if (home.lyricsVisible) 0.58f else 0.66f) else 0.80f
         val baseWidth = minOf(maxW * 0.94f, maxH * heightShare * TURNTABLE_ASPECT)
         val ttWidth = baseWidth * home.turntableSize
         val ttHeight = ttWidth / TURNTABLE_ASPECT
@@ -280,10 +294,15 @@ private fun HomeContent(
                 onPrevious = vm::previous,
                 onSeek = vm::seek,
                 onOpenMusic = vm::openMusic,
+                onNeedleDown = vm::needleDown,
+                onNeedleUp = vm::needleUp,
                 modifier = Modifier.size(ttWidth, ttHeight),
             )
             if (showInfo) {
-                TrackInfo(np, Modifier.padding(top = 28.dp).width(minOf(ttWidth * 0.62f, 560.dp)))
+                TrackInfo(
+                    np, home.lyricsVisible, onOpenCrate = vm::openCrate,
+                    modifier = Modifier.padding(top = 28.dp).width(minOf(ttWidth * 0.62f, 560.dp)),
+                )
             }
         }
 
@@ -396,7 +415,8 @@ val EDITOR_HEIGHT_PORTRAIT = 440.dp
  * (hierarki Now Playing Apple Music). Ketuk tidak diperlukan — kontrol ada di turntable.
  */
 @Composable
-private fun TrackInfo(np: NowPlaying, modifier: Modifier = Modifier) {
+private fun TrackInfo(np: NowPlaying, showLyrics: Boolean, onOpenCrate: () -> Unit, modifier: Modifier = Modifier) {
+    val lyrics = rememberLyrics(np, showLyrics)
     var progress by remember { mutableFloatStateOf(np.progress) }
     var posText by remember { mutableStateOf(formatMs(np.positionAt())) }
     LaunchedEffect(np) {
@@ -443,6 +463,22 @@ private fun TrackInfo(np: NowPlaying, modifier: Modifier = Modifier) {
                 Spacer(Modifier.weight(1f))
                 Text(formatMs(np.durationMs), style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"), color = TextTertiary)
             }
+        }
+        if (np.hasTrack && showLyrics) {
+            LyricsLines(np, lyrics, Modifier.padding(top = 20.dp).fillMaxWidth())
+        }
+        if (np.hasTrack) {
+            Text(
+                "Berikutnya  ›",
+                style = MaterialTheme.typography.labelLarge,
+                color = TextSecondary,
+                modifier = Modifier
+                    .padding(top = 16.dp)
+                    .clip(RoundedCornerShape(50))
+                    .glass(RoundedCornerShape(50), fillAlpha = 0.06f)
+                    .clickable(onClick = onOpenCrate)
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+            )
         }
     }
 }

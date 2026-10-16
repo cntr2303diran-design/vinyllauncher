@@ -111,6 +111,10 @@ fun Turntable(
     onPrevious: () -> Unit = {},
     onSeek: (Long) -> Unit = {},
     onOpenMusic: () -> Unit = {},
+    /** Dipanggil saat jarum mendarat di piringan (untuk suara & getar). */
+    onNeedleDown: () -> Unit = {},
+    /** Dipanggil saat lengan terangkat. */
+    onNeedleUp: () -> Unit = {},
 ) {
     val np by rememberUpdatedState(nowPlaying)
     val togglePlay by rememberUpdatedState(onTogglePlay)
@@ -172,6 +176,22 @@ fun Turntable(
         }
     }
     LaunchedEffect(nowPlaying) { if (armDragTheta == null) progress = nowPlaying.progress }
+
+    // Suara/getar jarum: hanya saat status BERUBAH (bukan saat layar pertama kali tampil)
+    val needleDown by rememberUpdatedState(onNeedleDown)
+    val needleUp by rememberUpdatedState(onNeedleUp)
+    var lastPlaying by remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(playing) {
+        val prev = lastPlaying
+        lastPlaying = playing
+        if (prev == null || prev == playing) return@LaunchedEffect
+        if (playing) {
+            kotlinx.coroutines.delay(1080) // vinyl meluncur (0 ms) + tonearm turun (450 + 650 ms)
+            needleDown()
+        } else {
+            needleUp()
+        }
+    }
 
     BoxWithConstraints(
         modifier.semantics {

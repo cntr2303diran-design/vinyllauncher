@@ -13,6 +13,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.vinyl.launcher.media.MediaRepository
+import com.vinyl.launcher.service.TaskbarState
 import com.vinyl.launcher.ui.theme.VinylTheme
 
 /**
@@ -51,8 +52,14 @@ class CoverActivity : ComponentActivity() {
         }
     }
 
+    override fun onPause() {
+        super.onPause()
+        TaskbarState.setSuppressed(false)
+    }
+
     override fun onResume() {
         super.onResume()
+        TaskbarState.setSuppressed(true)
         MediaRepository.connect()
         hideSystemBars()
     }

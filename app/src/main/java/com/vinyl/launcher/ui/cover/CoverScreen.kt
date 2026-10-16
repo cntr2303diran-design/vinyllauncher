@@ -77,6 +77,10 @@ import com.vinyl.launcher.ui.components.BatteryIndicator
 import com.vinyl.launcher.ui.components.ClockView
 import com.vinyl.launcher.ui.components.DateText
 import com.vinyl.launcher.ui.components.NowPlayingCard
+import com.vinyl.launcher.ui.components.LyricsLines
+import com.vinyl.launcher.ui.components.rememberLyrics
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
 import com.vinyl.launcher.ui.components.ShimmerText
 import com.vinyl.launcher.ui.components.TwoMonthCalendar
 import com.vinyl.launcher.ui.components.VinylDisc
@@ -314,13 +318,28 @@ private fun InfoArea(cover: CoverSettings, np: NowPlaying, now: LocalDateTime, a
                             cell = cell,
                             card = true,
                         )
-                        CoverItem.SONG -> NowPlayingCard(
-                            np = np,
-                            onTogglePlay = { MediaRepository.togglePlayPause() },
-                            onNext = { MediaRepository.next() },
-                            onPrevious = { MediaRepository.previous() },
-                            onOpen = { MediaRepository.openMusicApp(context) },
-                        )
+                        CoverItem.SONG -> Column(horizontalAlignment = anchor.horizontal()) {
+                            NowPlayingCard(
+                                np = np,
+                                onTogglePlay = { MediaRepository.togglePlayPause() },
+                                onNext = { MediaRepository.next() },
+                                onPrevious = { MediaRepository.previous() },
+                                onOpen = { MediaRepository.openMusicApp(context) },
+                            )
+                            if (cover.lyricsVisible && np.hasTrack) {
+                                val lyrics = rememberLyrics(np, true)
+                                LyricsLines(
+                                    np, lyrics,
+                                    modifier = Modifier.padding(top = 16.dp, start = 6.dp).width(440.dp),
+                                    fontSize = 22.sp,
+                                    align = when (anchor.horizontal()) {
+                                        Alignment.End -> TextAlign.End
+                                        Alignment.CenterHorizontally -> TextAlign.Center
+                                        else -> TextAlign.Start
+                                    },
+                                )
+                            }
+                        }
                         CoverItem.BATTERY -> BatteryIndicator(textColor)
                     }
                 }

@@ -6,7 +6,10 @@ import androidx.lifecycle.viewModelScope
 import com.vinyl.launcher.data.AppInfo
 import com.vinyl.launcher.data.AppSettings
 import com.vinyl.launcher.data.AppsRepository
+import com.vinyl.launcher.data.HistoryRepository
 import com.vinyl.launcher.data.HomeSettings
+import com.vinyl.launcher.data.PlayRecord
+import com.vinyl.launcher.util.SoundFx
 import com.vinyl.launcher.data.MAX_DOCK_APPS
 import com.vinyl.launcher.data.SettingsRepository
 import com.vinyl.launcher.data.ThemePreset
@@ -46,6 +49,16 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         s.dock.apps.mapNotNull { key -> apps.firstOrNull { it.key == key } }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    val queue: StateFlow<List<MediaRepository.QueueEntry>> = MediaRepository.queue
+    val history: StateFlow<List<PlayRecord>> = HistoryRepository.records
+
+    private val _crateOpen = MutableStateFlow(false)
+    /** Rak piringan (antrean + koleksi). */
+    val crateOpen: StateFlow<Boolean> = _crateOpen.asStateFlow()
+    fun openCrate() { if (_draft.value == null) { _drawerOpen.value = false; _crateOpen.value = true } }
+    fun closeCrate() { _crateOpen.value = false }
+    fun clearHistory() = HistoryRepository.clear()
+
     private val _drawerOpen = MutableStateFlow(false)
     val drawerOpen: StateFlow<Boolean> = _drawerOpen.asStateFlow()
 
@@ -64,6 +77,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     /** Tombol Home ditekan saat launcher sudah di depan: tutup drawer/editor. */
     fun onHomePressed() {
         _drawerOpen.value = false
+        _crateOpen.value = false
         if (_draft.value != null) cancelEdit()
     }
 
@@ -131,4 +145,12 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     fun previous() = MediaRepository.previous()
     fun seek(ms: Long) = MediaRepository.seekTo(ms)
     fun openMusic() = MediaRepository.openMusicApp(getApplication())
+
+    // ---------- Efek jarum ----------
+    fun needleDown() = settings.value.effects.let {
+        SoundFx.needleDown(getApplication(), it.needleSound, it.haptics, it.volume)
+    }
+    fun needleUp() = settings.value.effects.let {
+        SoundFx.needleUp(getApplication(), it.needleSound, it.haptics, it.volume)
+    }
 }

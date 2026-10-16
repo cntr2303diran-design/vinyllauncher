@@ -54,6 +54,9 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.vinyl.launcher.data.MAX_DOCK_APPS
 import com.vinyl.launcher.ui.cover.CoverActivity
+import com.vinyl.launcher.service.TaskbarService
+import com.vinyl.launcher.util.SystemActions
+import android.provider.Settings
 import com.vinyl.launcher.ui.onboarding.PermissionSteps
 import com.vinyl.launcher.ui.theme.VinylTheme
 
@@ -145,13 +148,22 @@ private fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
                 if (s.defaultMusicPackage != null) TextButton(onClick = { vm.update { it.copy(defaultMusicPackage = null) } }) { Text("Kembali ke otomatis") }
             }
 
-            // ---------- Dock ----------
-            Group("Dock") {
+            // ---------- Taskbar Vinyl ----------
+            Group("Taskbar Vinyl") {
                 SwitchRow(
-                    "Dock vinyl mini", s.dock.enabled, { on -> vm.update { it.copy(dock = it.dock.copy(enabled = on)) } },
-                    subtitle = "Cadangan bila taskbar sistem hilang saat memakai launcher pihak ketiga",
+                    "Aktifkan Taskbar Vinyl", s.dock.enabled,
+                    { on ->
+                        if (on && !Settings.canDrawOverlays(context)) SystemActions.openOverlaySettings(context)
+                        vm.update { it.copy(dock = it.dock.copy(enabled = on)) }
+                        if (on) TaskbarService.start(context)
+                    },
+                    subtitle = "Bar melayang di atas semua aplikasi, pengganti taskbar Samsung",
                 )
                 if (s.dock.enabled) {
+                    if (!Settings.canDrawOverlays(context)) TextButton(onClick = { SystemActions.openOverlaySettings(context) }) {
+                        Text("Izinkan \"Tampilkan di atas aplikasi lain\"")
+                    }
+                    Text("Aplikasi favorit", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 10.dp, bottom = 4.dp))
                     s.dock.apps.forEachIndexed { i, key ->
                         val app = apps.firstOrNull { it.key == key }
                         Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -162,8 +174,23 @@ private fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
                             TextButton(onClick = { vm.update { st -> st.copy(dock = st.dock.copy(apps = st.dock.apps.filterIndexed { j, _ -> j != i })) } }) { Text("Hapus") }
                         }
                     }
-                    if (s.dock.apps.size < MAX_DOCK_APPS) OutlinedButton(onClick = { pickDock = -1 }) { Text("+ Tambah aplikasi (${s.dock.apps.size}/$MAX_DOCK_APPS)") }
+                    if (s.dock.apps.size < MAX_DOCK_APPS) TextButton(onClick = { pickDock = -1 }) { Text("+ Tambah favorit (${s.dock.apps.size}/$MAX_DOCK_APPS)") }
+                    SwitchRow("Aplikasi terakhir dibuka", s.dock.showRecents, { on ->
+                        if (on && !TaskbarService.hasUsageAccess(context)) SystemActions.openUsageAccessSettings(context)
+                        vm.update { it.copy(dock = it.dock.copy(showRecents = on)) }
+                    }, subtitle = if (TaskbarService.hasUsageAccess(context)) null else "Perlu izin \"Akses penggunaan\" — ketuk untuk membuka")
+                    SwitchRow("Kartu lagu yang diputar", s.dock.showNowPlaying, { on -> vm.update { it.copy(dock = it.dock.copy(showNowPlaying = on)) } })
+                    SwitchRow("Sembunyikan saat layar penuh", s.dock.hideInFullscreen, { on -> vm.update { it.copy(dock = it.dock.copy(hideInFullscreen = on)) } },
+                        subtitle = "Misalnya saat menonton video atau bermain game")
                 }
+            }
+
+            // ---------- Efek ----------
+            Group("Suara & getar") {
+                SwitchRow("Suara jarum", s.effects.needleSound, { on -> vm.update { it.copy(effects = it.effects.copy(needleSound = on)) } },
+                    subtitle = "Bunyi \"tuk\" dan desis vinyl saat lagu mulai")
+                SwitchRow("Getar halus", s.effects.haptics, { on -> vm.update { it.copy(effects = it.effects.copy(haptics = on)) } })
+                if (s.effects.needleSound) SliderRow("Volume efek", s.effects.volume, 0.05f..1f, { v -> vm.update { it.copy(effects = it.effects.copy(volume = v)) } })
             }
 
             // ---------- Gestur ----------
@@ -235,7 +262,7 @@ private fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
     if (pickMusic) AppPickerDialog(apps, "Aplikasi musik default", onDismiss = { pickMusic = false }) { app ->
         vm.update { it.copy(defaultMusicPackage = app.packageName) }; pickMusic = false
     }
-    if (pickDock != -2) AppPickerDialog(apps, "Pilih aplikasi dock", onDismiss = { pickDock = -2 }) { app ->
+    if (pickDock != -2) AppPickerDialog(apps, "Pilih aplikasi favorit", onDismiss = { pickDock = -2 }) { app ->
         val idx = pickDock
         vm.update { st ->
             val list = st.dock.apps.toMutableList()

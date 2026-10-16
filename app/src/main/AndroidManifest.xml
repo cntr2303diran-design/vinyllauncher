@@ -15,6 +15,12 @@
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
     <!-- Gestur "buka notifikasi" (cadangan bila layanan aksesibilitas tidak aktif) -->
     <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
+    <!-- Getar halus saat jarum turun -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Taskbar Vinyl: daftar aplikasi terakhir dibuka (izin khusus, diberikan pengguna di Pengaturan) -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
     <!-- Widget cuaca (Open-Meteo, tanpa API key) -->
     <uses-permission android:name="android.permission.INTERNET" />
 
@@ -113,6 +119,16 @@
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Menampilkan layar kunci kustom (cover screen) saat layar dimatikan" />
+        </service>
+
+        <!-- Taskbar Vinyl yang melayang di atas semua aplikasi -->
+        <service
+            android:name=".service.TaskbarService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Menampilkan taskbar pengganti di atas aplikasi lain" />
         </service>
 
         <!-- Opsional: aksi gestur kunci layar & buka notifikasi -->

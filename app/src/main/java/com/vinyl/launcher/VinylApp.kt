@@ -2,9 +2,11 @@ package com.vinyl.launcher
 
 import android.app.Application
 import com.vinyl.launcher.data.AppsRepository
+import com.vinyl.launcher.data.HistoryRepository
 import com.vinyl.launcher.data.SettingsRepository
 import com.vinyl.launcher.media.MediaRepository
 import com.vinyl.launcher.service.CoverService
+import com.vinyl.launcher.service.TaskbarService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -19,6 +21,7 @@ class VinylApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        HistoryRepository.init(this)
         MediaRepository.init(this)
         MediaRepository.connect()
         AppsRepository.get(this) // muat daftar aplikasi lebih awal
@@ -32,6 +35,12 @@ class VinylApp : Application() {
             // Nyalakan/matikan layanan layar kunci sesuai pengaturan
             SettingsRepository.get(this@VinylApp).flow.map { it.coverEnabled }.distinctUntilChanged().collect { enabled ->
                 if (enabled) CoverService.start(this@VinylApp) else CoverService.stop(this@VinylApp)
+            }
+        }
+        appScope.launch {
+            // Taskbar Vinyl menyala/mati sesuai pengaturan
+            SettingsRepository.get(this@VinylApp).flow.map { it.dock.enabled }.distinctUntilChanged().collect { enabled ->
+                if (enabled) TaskbarService.start(this@VinylApp) else TaskbarService.stop(this@VinylApp)
             }
         }
     }

@@ -220,7 +220,7 @@ private fun AppTile(
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             DropdownMenuItem(text = { Text("Info aplikasi") }, onClick = { menu = false; onInfo() })
             DropdownMenuItem(text = { Text("Uninstall") }, onClick = { menu = false; onUninstall() })
-            if (canAddToDock) DropdownMenuItem(text = { Text("Tambahkan ke dock") }, onClick = { menu = false; onAddToDock() })
+            if (canAddToDock) DropdownMenuItem(text = { Text("Tambahkan ke taskbar") }, onClick = { menu = false; onAddToDock() })
             DropdownMenuItem(text = { Text("Sembunyikan aplikasi") }, onClick = { menu = false; onHide() })
         }
     }

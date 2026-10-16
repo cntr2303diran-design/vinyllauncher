@@ -8,6 +8,7 @@ import android.graphics.BitmapFactory
 import android.media.MediaMetadata
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
+import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.net.Uri
 import android.os.Handler
@@ -157,6 +158,7 @@ object MediaRepository {
                 val cb = object : MediaController.Callback() {
                     override fun onPlaybackStateChanged(state: PlaybackState?) = chooseActive()
                     override fun onMetadataChanged(metadata: MediaMetadata?) = chooseActive()
+                    override fun onQueueChanged(queue: MutableList<MediaSession.QueueItem>?) = chooseActive()
                     override fun onSessionDestroyed() = chooseActive()
                 }
                 c.registerCallback(cb, handler)
@@ -180,6 +182,8 @@ object MediaRepository {
     private fun publish(c: MediaController?) {
         if (c == null) {
             _state.value = NowPlaying()
+            _queue.value = emptyList()
+            HistoryRecorder.onState(_state.value)
             return
         }
         val md = c.metadata
@@ -220,7 +224,37 @@ object MediaRepository {
             )
         }
         if (key != artKey) loadArt(key, md)
+        publishQueue(c)
+        HistoryRecorder.onState(_state.value)
     }
+
+    // ===================== Antrean (Up Next) =====================
+
+    /** Satu lagu dalam antrean aplikasi musik. */
+    data class QueueEntry(val id: Long, val title: String, val subtitle: String, val art: Bitmap?, val artUri: String?, val isCurrent: Boolean)
+
+    private val _queue = MutableStateFlow<List<QueueEntry>>(emptyList())
+    /** Antrean dari aplikasi musik aktif (kosong jika aplikasi tidak membagikannya). */
+    val queue: StateFlow<List<QueueEntry>> = _queue.asStateFlow()
+
+    private fun publishQueue(c: MediaController) {
+        val activeId = c.playbackState?.activeQueueItemId ?: -1L
+        _queue.value = runCatching {
+            c.queue.orEmpty().map { item ->
+                val d = item.description
+                QueueEntry(
+                    id = item.queueId,
+                    title = d.title?.toString().orEmpty(),
+                    subtitle = d.subtitle?.toString().orEmpty(),
+                    art = d.iconBitmap,
+                    artUri = d.iconUri?.toString(),
+                    isCurrent = item.queueId == activeId,
+                )
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    fun playQueueItem(id: Long) { active?.transportControls?.skipToQueueItem(id) }
 
     /**
      * Sidik jari murah untuk gambar cover: ukuran + 5 sampel piksel, atau string URI.
@@ -278,6 +312,7 @@ object MediaRepository {
             _state.update { s ->
                 s.copy(art = cachedArt, dominantColor = cachedDominant, accentColor = cachedAccent, swatches = cachedSwatches)
             }
+            HistoryRecorder.onState(_state.value)
         }
     }
 

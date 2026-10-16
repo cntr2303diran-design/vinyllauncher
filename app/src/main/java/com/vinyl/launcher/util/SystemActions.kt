@@ -20,13 +20,14 @@ object SystemActions {
      * Menjalankan gestur. [openDrawer] dipanggil untuk aksi APP_DRAWER
      * karena drawer adalah bagian UI home screen.
      */
-    fun perform(context: Context, binding: GestureBinding, openDrawer: () -> Unit) {
+    fun perform(context: Context, binding: GestureBinding, openCrate: () -> Unit = {}, openDrawer: () -> Unit) {
         when (binding.action) {
             GestureAction.NONE -> Unit
             GestureAction.APP_DRAWER -> openDrawer()
             GestureAction.NOTIFICATIONS -> expandNotifications(context)
             GestureAction.LOCK_SCREEN -> lockScreen(context)
             GestureAction.OPEN_APP -> binding.packageName?.let { AppsRepository.get(context).launchPackage(it) }
+            GestureAction.CRATE -> openCrate()
             GestureAction.SETTINGS -> context.startActivity(
                 Intent(context, SettingsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             )
@@ -67,6 +68,8 @@ object SystemActions {
         startSafe(context, Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
 
     fun openHomeSettings(context: Context) = startSafe(context, Intent(Settings.ACTION_HOME_SETTINGS))
+
+    fun openUsageAccessSettings(context: Context) = startSafe(context, Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
 
     fun openOverlaySettings(context: Context) = startSafe(
         context,

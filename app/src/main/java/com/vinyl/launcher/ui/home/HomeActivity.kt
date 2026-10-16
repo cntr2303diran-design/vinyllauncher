@@ -10,6 +10,7 @@ import androidx.activity.viewModels
 import androidx.lifecycle.lifecycleScope
 import com.vinyl.launcher.data.SettingsRepository
 import com.vinyl.launcher.media.MediaRepository
+import com.vinyl.launcher.service.TaskbarService
 import com.vinyl.launcher.ui.onboarding.OnboardingActivity
 import com.vinyl.launcher.ui.theme.VinylTheme
 import kotlinx.coroutines.launch
@@ -29,6 +30,7 @@ class HomeActivity : ComponentActivity() {
         )
         super.onCreate(savedInstanceState)
         setContent { VinylTheme { HomeScreen(vm) } }
+        if (intent?.getBooleanExtra(EXTRA_OPEN_DRAWER, false) == true) vm.openDrawer()
 
         // Pertama kali: arahkan ke onboarding
         lifecycleScope.launch {
@@ -42,11 +44,21 @@ class HomeActivity : ComponentActivity() {
         super.onResume()
         // Izin akses notifikasi mungkin baru saja diberikan
         MediaRepository.connect()
+        // Nyalakan ulang taskbar bila aktif (mis. setelah izin overlay baru diberikan)
+        if (vm.settings.value.dock.enabled) TaskbarService.start(this)
     }
 
     /** Tombol Home ditekan saat launcher sudah tampil → tutup drawer/editor. */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (intent.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_HOME)) vm.onHomePressed()
+        when {
+            intent.getBooleanExtra(EXTRA_OPEN_DRAWER, false) -> vm.openDrawer()
+            intent.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_HOME) -> vm.onHomePressed()
+        }
+    }
+
+    companion object {
+        /** Dikirim taskbar untuk langsung membuka app drawer. */
+        const val EXTRA_OPEN_DRAWER = "open_drawer"
     }
 }

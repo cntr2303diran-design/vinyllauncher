@@ -33,7 +33,7 @@ enum class VinylStyle { CLASSIC, COLORED, TRANSPARENT, PICTURE_DISC }
 enum class TonearmStyle { SILVER, BLACK, GOLD }
 
 @Serializable
-enum class GestureAction { NONE, APP_DRAWER, NOTIFICATIONS, LOCK_SCREEN, OPEN_APP, SETTINGS }
+enum class GestureAction { NONE, APP_DRAWER, NOTIFICATIONS, LOCK_SCREEN, OPEN_APP, SETTINGS, CRATE }
 
 @Serializable
 enum class WidgetType { CALENDAR, WEATHER, BATTERY }
@@ -87,6 +87,8 @@ data class HomeSettings(
     val clock: ClockSettings = ClockSettings(type = ClockType.BOLD, scale = 0.62f, anchor = Anchor.TOP_START),
     /** Judul, artis & progress di bawah turntable (ala Apple Music). */
     val trackInfoVisible: Boolean = true,
+    /** Lirik tersinkron di bawah info lagu. */
+    val lyricsVisible: Boolean = true,
     val widgets: List<WidgetConfig> = emptyList(),
 )
 
@@ -103,6 +105,8 @@ data class CoverSettings(
     val battery: CoverElement = CoverElement(true, Anchor.TOP_END),
     val calendarEvents: Boolean = false,
     val background: BackgroundSettings = BackgroundSettings(type = BackgroundType.ALBUM),
+    /** Lirik tersinkron di bawah kartu musik layar kunci. */
+    val lyricsVisible: Boolean = true,
 )
 
 @Serializable
@@ -115,11 +119,30 @@ data class GestureSettings(
     val doubleTap: GestureBinding = GestureBinding(GestureAction.LOCK_SCREEN),
 )
 
+/**
+ * Taskbar Vinyl: bar kaca yang melayang di atas semua aplikasi
+ * (pengganti taskbar Samsung yang dimatikan sistem untuk launcher pihak ketiga).
+ */
 @Serializable
 data class DockSettings(
     val enabled: Boolean = false,
-    /** Komponen aplikasi ("paket/kelas"), maks 8. */
+    /** Aplikasi favorit (komponen "paket/kelas"), maks 8. */
     val apps: List<String> = emptyList(),
+    /** Tampilkan aplikasi yang terakhir dibuka (butuh izin akses penggunaan). */
+    val showRecents: Boolean = true,
+    /** Tampilkan kartu kecil lagu yang sedang diputar. */
+    val showNowPlaying: Boolean = true,
+    /** Sembunyikan taskbar saat aplikasi berjalan layar penuh (video, game). */
+    val hideInFullscreen: Boolean = true,
+)
+
+/** Efek suara & getar ala turntable sungguhan. */
+@Serializable
+data class EffectSettings(
+    val needleSound: Boolean = true,
+    val haptics: Boolean = true,
+    /** Volume efek (0..1), relatif terhadap volume media. */
+    val volume: Float = 0.35f,
 )
 
 @Serializable
@@ -140,6 +163,7 @@ data class AppSettings(
     val gestures: GestureSettings = GestureSettings(),
     val dock: DockSettings = DockSettings(),
     val weather: WeatherSettings = WeatherSettings(),
+    val effects: EffectSettings = EffectSettings(),
     /** Paket aplikasi musik default (null = pilih otomatis). */
     val defaultMusicPackage: String? = null,
     val hiddenApps: Set<String> = emptySet(),

@@ -390,6 +390,10 @@ fun HomeSectionControls(section: HomeSection, home: HomeSettings, onChange: (Hom
                 SwitchRow("Sudut membulat", home.coverRounded, { onChange(home.copy(coverRounded = it)) })
                 SwitchRow("Bayangan", home.coverShadow, { onChange(home.copy(coverShadow = it)) })
                 SwitchRow("Judul & progress di bawah turntable", home.trackInfoVisible, { onChange(home.copy(trackInfoVisible = it)) })
+                if (home.trackInfoVisible) SwitchRow(
+                    "Lirik berjalan", home.lyricsVisible, { onChange(home.copy(lyricsVisible = it)) },
+                    subtitle = "Dari LRCLIB, butuh internet",
+                )
             }
         }
         HomeSection.CLOCK -> {
@@ -449,6 +453,7 @@ fun CoverStyleControls(cover: CoverSettings, onChange: (CoverSettings) -> Unit, 
             subtitle = "Memerlukan izin kalender",
         )
         ElementControls("Kartu musik", cover.songInfo) { onChange(cover.copy(songInfo = it)) }
+        if (cover.songInfo.visible) SwitchRow("Lirik di bawah kartu musik", cover.lyricsVisible, { onChange(cover.copy(lyricsVisible = it)) })
         ElementControls("Baterai", cover.battery) { onChange(cover.copy(battery = it)) }
     }
 
@@ -469,6 +474,7 @@ fun GestureAction.label() = when (this) {
     GestureAction.LOCK_SCREEN -> "Kunci layar"
     GestureAction.OPEN_APP -> "Buka aplikasi"
     GestureAction.SETTINGS -> "Pengaturan"
+    GestureAction.CRATE -> "Rak piringan"
 }
 
 @Composable
